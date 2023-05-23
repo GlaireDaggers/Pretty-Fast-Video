@@ -1,0 +1,11 @@
+[package]
+name = "pfv-test"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+debug = true
+
+[dependencies]
+pfv-rs = { path = "../" }
+sdl2 = "0.35.2"
