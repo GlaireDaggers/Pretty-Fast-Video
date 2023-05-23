@@ -1,0 +1,5 @@
+[env]
+RUST_BACKTRACE = "full"
+
+[build]
+rustflags = "-C target-cpu=native"
