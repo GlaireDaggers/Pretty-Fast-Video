@@ -7,6 +7,7 @@ mod dct;
 mod common;
 mod huffman;
 mod rle;
+mod qoa;
 
 #[cfg(test)]
 mod tests {
