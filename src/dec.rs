@@ -300,7 +300,8 @@ impl<TReader: Read + Seek> Decoder<TReader> {
             // unzip interleaved into audio buffer
             for (ch, buf) in audio_frame.iter().enumerate() {
                 for (idx, s) in buf.iter().enumerate() {
-                    self.audio_buf[(idx * self.channels as usize) + ch] = *s;
+                    let out_idx = read_samples + idx;
+                    self.audio_buf[(out_idx * self.channels as usize) + ch] = *s;
                 }
             }
 

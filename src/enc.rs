@@ -132,11 +132,12 @@ impl Encoder {
 
         // write packets to file (interleave A/V packets)
 
-        let samples_per_frame = self.samplerate as f32 / self.framerate as f32;
-        let mut sample_accum = 0.0;
-
         // 250ms audio buffer size (at 44.1khz this means each returned audio chunk will contain 11025 samples)
         let buffer_size = (self.samplerate / 4) as f32;
+
+        // start with some samples already accumulated to mitigate buffering delays during playback
+        let samples_per_frame = self.samplerate as f32 / self.framerate as f32;
+        let mut sample_accum = buffer_size * 2.0;
 
         for f in &self.frames {
             match f {
