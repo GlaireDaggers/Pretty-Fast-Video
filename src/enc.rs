@@ -151,12 +151,14 @@ impl Encoder {
                 sample_accum += samples_per_frame;
 
                 while sample_accum >= buffer_size {
-                    let samples_to_write = (buffer_size as usize).max(self.audio_buf[0].len());
-                    let mut samples: Vec<Vec<i16>> = Vec::new();
-                    for buf in &mut self.audio_buf {
-                        samples.push(buf.drain(0..samples_to_write).collect());
+                    let samples_to_write = (buffer_size as usize).min(self.audio_buf[0].len());
+                    if samples_to_write > 0 {
+                        let mut samples: Vec<Vec<i16>> = Vec::new();
+                        for buf in &mut self.audio_buf {
+                            samples.push(buf.drain(0..samples_to_write).collect());
+                        }
+                        Encoder::write_audio_packet(&samples, writer)?;
                     }
-                    Encoder::write_audio_packet(&samples, writer)?;
                     sample_accum -= buffer_size;
                 }
             }
