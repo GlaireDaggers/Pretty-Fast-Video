@@ -24,6 +24,7 @@ pub struct Decoder<TReader: Read + Seek> {
     retframe: VideoFrame,
     delta_accum: f64,
     audio_buf: Vec<i16>,
+    eof: bool,
 }
 
 #[derive(Debug)]
@@ -125,7 +126,7 @@ impl<TReader: Read + Seek> Decoder<TReader> {
 
         Ok(Decoder { reader: reader, width: width as usize, height: height as usize, framerate: framerate as u32, samplerate: samplerate as u32,
             channels: channels as u32, qtables: qtables, framebuffer: VideoFrame::new_padded(width as usize, height as usize),
-            retframe: VideoFrame::new(width as usize, height as usize), delta_accum: 0.0, audio_buf: Vec::new() })
+            retframe: VideoFrame::new(width as usize, height as usize), delta_accum: 0.0, audio_buf: Vec::new(), eof: false })
     }
 
     pub fn width(self: &Decoder<TReader>) -> usize {
@@ -167,6 +168,10 @@ impl<TReader: Read + Seek> Decoder<TReader> {
     pub fn advance_frame<FV, FA>(self: &mut Decoder<TReader>, onvideo: &mut FV, onaudio: &mut FA) -> Result<bool, std::io::Error> where
         FV: FnMut(&VideoFrame),
         FA: FnMut(&[i16]) {
+        if self.eof {
+            return Ok(false);
+        }
+
         loop {
             // read next packet header
             // if we hit EOF, return false
@@ -177,6 +182,7 @@ impl<TReader: Read + Seek> Decoder<TReader> {
             match packet_type {
                 0 => {
                     // EOF marker
+                    self.eof = true;
                     return Ok(false);
                 }
                 1 => {
