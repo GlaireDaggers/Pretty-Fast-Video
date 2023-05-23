@@ -276,8 +276,7 @@ impl VideoPlane {
         }
     }
 
-    #[cfg(feature = "multithreading")]
-    pub fn encode_plane(self: &VideoPlane, q_table: &[f32;64], clear_color: u8) -> EncodedIPlane {
+    pub fn encode_plane(self: &VideoPlane, q_table: &[f32;64], clear_color: u8, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> EncodedIPlane {
         let pad_width: usize = self.width + (16 - (self.width % 16)) % 16;
         let pad_height = self.height + (16 - (self.height % 16)) % 16;
         let mut img_copy = VideoPlane::new(pad_width, pad_height);
@@ -299,36 +298,14 @@ impl VideoPlane {
         }
 
         // encode each macroblock in parallel
-        let enc_result: Vec<_> = blocks.par_iter().map(|x| {
-            VideoPlane::encode_block(x, q_table)
-        }).collect();
+        #[cfg(feature = "multithreading")]
+        let enc_result: Vec<_> = tp.install(|| {
+            blocks.par_iter().map(|x| {
+                VideoPlane::encode_block(x, q_table)
+            }).collect()
+        });
 
-        EncodedIPlane { width: pad_width, height: pad_height, blocks_wide: blocks_wide, blocks_high: blocks_high, blocks: enc_result }
-    }
-
-    #[cfg(not(feature = "multithreading"))]
-    pub fn encode_plane(self: &VideoPlane, q_table: &[f32;64], clear_color: u8) -> EncodedIPlane {
-        let pad_width: usize = self.width + (16 - (self.width % 16)) % 16;
-        let pad_height = self.height + (16 - (self.height % 16)) % 16;
-        let mut img_copy = VideoPlane::new(pad_width, pad_height);
-        img_copy.pixels.fill(clear_color);
-        img_copy.blit(self, 0, 0, 0, 0, self.width, self.height);
-
-        let blocks_wide = pad_width / 16;
-        let blocks_high = pad_height / 16;
-
-        let mut blocks: Vec<VideoPlane> = Vec::with_capacity(blocks_wide * blocks_high);
-
-        // split image plane into 16x16 macroblocks
-        for block_y in 0..blocks_high {
-            for block_x in 0..blocks_wide {
-                let mut block = VideoPlane::new(16, 16);
-                block.blit(&img_copy, 0, 0, block_x * 16, block_y * 16, 16, 16);
-                blocks.push(block);
-            }
-        }
-
-        // encode each macroblock in parallel
+        #[cfg(not(feature = "multithreading"))]
         let enc_result: Vec<_> = blocks.iter().map(|x| {
             VideoPlane::encode_block(x, q_table)
         }).collect();
@@ -336,8 +313,7 @@ impl VideoPlane {
         EncodedIPlane { width: pad_width, height: pad_height, blocks_wide: blocks_wide, blocks_high: blocks_high, blocks: enc_result }
     }
 
-    #[cfg(feature = "multithreading")]
-    pub fn encode_plane_delta(self: &VideoPlane, refplane: &VideoPlane, q_table: &[f32;64], px_err: f32, clear_color: u8) -> EncodedPPlane {
+    pub fn encode_plane_delta(self: &VideoPlane, refplane: &VideoPlane, q_table: &[f32;64], px_err: f32, clear_color: u8, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> EncodedPPlane {
         let pad_width: usize = self.width + (16 - (self.width % 16)) % 16;
         let pad_height = self.height + (16 - (self.height % 16)) % 16;
         let mut img_copy = VideoPlane::new(pad_width, pad_height);
@@ -359,67 +335,30 @@ impl VideoPlane {
         }
 
         // encode each macroblock in parallel
-        let enc_result: Vec<_> = blocks.par_iter().map(|(block, bx, by)| {
+        #[cfg(feature = "multithreading")]
+        let enc_result: Vec<_> = tp.install(|| {blocks.par_iter().map(|(block, bx, by)| {
+            VideoPlane::encode_block_delta(block, refplane, *bx, *by, q_table, px_err)
+        }).collect()});
+
+        #[cfg(not(feature = "multithreading"))]
+        let enc_result: Vec<_> = blocks.iter().map(|(block, bx, by)| {
             VideoPlane::encode_block_delta(block, refplane, *bx, *by, q_table, px_err)
         }).collect();
 
         EncodedPPlane { width: pad_width, height: pad_height, blocks_wide: blocks_wide, blocks_high: blocks_high, blocks: enc_result }
     }
 
-    #[cfg(not(feature = "multithreading"))]
-    pub fn encode_plane_delta(self: &VideoPlane, refplane: &VideoPlane, q_table: &[f32;64], clear_color: u8) -> EncodedPPlane {
-        let pad_width: usize = self.width + (16 - (self.width % 16)) % 16;
-        let pad_height = self.height + (16 - (self.height % 16)) % 16;
-        let mut img_copy = VideoPlane::new(pad_width, pad_height);
-        img_copy.pixels.fill(clear_color);
-        img_copy.blit(self, 0, 0, 0, 0, self.width, self.height);
-
-        let blocks_wide = pad_width / 16;
-        let blocks_high = pad_height / 16;
-
-        let mut blocks: Vec<_> = Vec::with_capacity(blocks_wide * blocks_high);
-
-        // split image plane into 16x16 macroblocks
-        for block_y in 0..blocks_high {
-            for block_x in 0..blocks_wide {
-                let mut block = VideoPlane::new(16, 16);
-                block.blit(&img_copy, 0, 0, block_x * 16, block_y * 16, 16, 16);
-                blocks.push((block, block_x * 16, block_y * 16));
-            }
-        }
-
-        // encode each macroblock in parallel
-        let enc_result: Vec<_> = blocks.iter().map(|(block, bx, by)| {
-            VideoPlane::encode_block_delta(block, refplane, *bx, *by, q_table)
-        }).collect();
-
-        EncodedPPlane { width: pad_width, height: pad_height, blocks_wide: blocks_wide, blocks_high: blocks_high, blocks: enc_result }
-    }
-
-    #[cfg(feature = "multithreading")]
-    pub fn decode_plane(src: &EncodedIPlane, q_table: &[f32;64]) -> VideoPlane {
+    pub fn decode_plane(src: &EncodedIPlane, q_table: &[f32;64], #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> VideoPlane {
         let mut plane = VideoPlane::new(src.blocks_wide * 16, src.blocks_high * 16);
 
         let total_blocks = src.blocks_wide * src.blocks_high;
-        let results: Vec<_> = (0..total_blocks).into_par_iter().map(|x| {
+
+        #[cfg(feature = "multithreading")]
+        let results: Vec<_> = tp.install(|| {(0..total_blocks).into_par_iter().map(|x| {
             VideoPlane::decode_block(&src.blocks[x], q_table)
-        }).collect();
+        }).collect()});
 
-        for block_y in 0..src.blocks_high {
-            for block_x in 0..src.blocks_wide {
-                let block = &results[block_x + (block_y * src.blocks_wide)];
-                plane.blit_block(block, block_x * 16, block_y * 16);
-            }
-        }
-
-        plane
-    }
-
-    #[cfg(not(feature = "multithreading"))]
-    pub fn decode_plane(src: &EncodedIPlane, q_table: &[f32;64]) -> VideoPlane {
-        let mut plane = VideoPlane::new(src.blocks_wide * 16, src.blocks_high * 16);
-
-        let total_blocks = src.blocks_wide * src.blocks_high;
+        #[cfg(not(feature = "multithreading"))]
         let results: Vec<_> = (0..total_blocks).into_iter().map(|x| {
             VideoPlane::decode_block(&src.blocks[x], q_table)
         }).collect();
@@ -434,32 +373,19 @@ impl VideoPlane {
         plane
     }
 
-    #[cfg(feature = "multithreading")]
-    pub fn decode_plane_delta(src: &EncodedPPlane, refplane: &VideoPlane, q_table: &[f32;64]) -> VideoPlane {
+    pub fn decode_plane_delta(src: &EncodedPPlane, refplane: &VideoPlane, q_table: &[f32;64], #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> VideoPlane {
         let mut plane = VideoPlane::new(src.blocks_wide * 16, src.blocks_high * 16);
 
         let total_blocks = src.blocks_wide * src.blocks_high;
-        let results: Vec<_> = (0..total_blocks).into_par_iter().map(|x| {
+
+        #[cfg(feature = "multithreading")]
+        let results: Vec<_> = tp.install(|| {(0..total_blocks).into_par_iter().map(|x| {
             let bx = x % src.blocks_wide;
             let by = x / src.blocks_wide;
             VideoPlane::decode_block_delta(&src.blocks[x], refplane, bx * 16, by * 16, q_table)
-        }).collect();
+        }).collect()});
 
-        for block_y in 0..src.blocks_high {
-            for block_x in 0..src.blocks_wide {
-                let block = &results[block_x + (block_y * src.blocks_wide)];
-                plane.blit_block(block, block_x * 16, block_y * 16);
-            }
-        }
-
-        plane
-    }
-
-    #[cfg(not(feature = "multithreading"))]
-    pub fn decode_plane_delta(src: &EncodedPPlane, refplane: &VideoPlane, q_table: &[f32;64]) -> VideoPlane {
-        let mut plane = VideoPlane::new(src.blocks_wide * 16, src.blocks_high * 16);
-
-        let total_blocks = src.blocks_wide * src.blocks_high;
+        #[cfg(not(feature = "multithreading"))]
         let results: Vec<_> = (0..total_blocks).into_iter().map(|x| {
             let bx = x % src.blocks_wide;
             let by = x / src.blocks_wide;
@@ -476,24 +402,15 @@ impl VideoPlane {
         plane
     }
 
-    #[cfg(feature = "multithreading")]
-    pub fn decode_plane_into(src: &EncodedIPlane, q_table: &[f32;64], target: &mut VideoPlane) {
+    pub fn decode_plane_into(src: &EncodedIPlane, q_table: &[f32;64], target: &mut VideoPlane, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
         let total_blocks = src.blocks_wide * src.blocks_high;
-        let results: Vec<_> = (0..total_blocks).into_par_iter().map(|x| {
+
+        #[cfg(feature = "multithreading")]
+        let results: Vec<_> = tp.install(|| {(0..total_blocks).into_par_iter().map(|x| {
             VideoPlane::decode_block(&src.blocks[x], q_table)
-        }).collect();
+        }).collect()});
 
-        for block_y in 0..src.blocks_high {
-            for block_x in 0..src.blocks_wide {
-                let block = &results[block_x + (block_y * src.blocks_wide)];
-                target.blit_block(block, block_x * 16, block_y * 16);
-            }
-        }
-    }
-
-    #[cfg(not(feature = "multithreading"))]
-    pub fn decode_plane_into(src: &EncodedIPlane, q_table: &[f32;64], target: &mut VideoPlane) {
-        let total_blocks = src.blocks_wide * src.blocks_high;
+        #[cfg(not(feature = "multithreading"))]
         let results: Vec<_> = (0..total_blocks).into_iter().map(|x| {
             VideoPlane::decode_block(&src.blocks[x], q_table)
         }).collect();
@@ -506,26 +423,17 @@ impl VideoPlane {
         }
     }
 
-    #[cfg(feature = "multithreading")]
-    pub fn decode_plane_delta_into(src: &EncodedPPlane, refplane: &mut VideoPlane, q_table: &[f32;64]) {
+    pub fn decode_plane_delta_into(src: &EncodedPPlane, refplane: &mut VideoPlane, q_table: &[f32;64], #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
         let total_blocks = src.blocks_wide * src.blocks_high;
-        let results: Vec<_> = (0..total_blocks).into_par_iter().map(|x| {
+
+        #[cfg(feature = "multithreading")]
+        let results: Vec<_> = tp.install(|| {(0..total_blocks).into_par_iter().map(|x| {
             let bx = x % src.blocks_wide;
             let by = x / src.blocks_wide;
             VideoPlane::decode_block_delta(&src.blocks[x], refplane, bx * 16, by * 16, q_table)
-        }).collect();
+        }).collect()});
 
-        for block_y in 0..src.blocks_high {
-            for block_x in 0..src.blocks_wide {
-                let block = &results[block_x + (block_y * src.blocks_wide)];
-                refplane.blit_block(block, block_x * 16, block_y * 16);
-            }
-        }
-    }
-
-    #[cfg(not(feature = "multithreading"))]
-    pub fn decode_plane_delta_into(src: &EncodedPPlane, refplane: &mut VideoPlane, q_table: &[f32;64]) {
-        let total_blocks = src.blocks_wide * src.blocks_high;
+        #[cfg(not(feature = "multithreading"))]
         let results: Vec<_> = (0..total_blocks).into_iter().map(|x| {
             let bx = x % src.blocks_wide;
             let by = x / src.blocks_wide;

@@ -11,7 +11,7 @@ mod qoa;
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, fs::File, io::{Cursor, Seek, Read}, time::Instant, hint::black_box};
+    use std::{path::Path, fs::{File, self}, io::{Cursor, Seek, Read}, time::Instant, hint::black_box};
 
     use bitstream_io::{BitWriter, BitWrite, BitReader, BitRead};
     use byteorder::{ReadBytesExt, LittleEndian};
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn test_encode_1() {
         let test_frame = load_frame("test1.png");
-        let mut encoder = Encoder::new(test_frame.width, test_frame.height, 30, 44100, 2, 5);
+        let mut encoder = Encoder::new(test_frame.width, test_frame.height, 30, 44100, 2, 5, 6);
         encoder.encode_iframe(&test_frame);
         encoder.encode_pframe(&test_frame);
 
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn test_decode_1() {
         let infile = File::open("test.pfv").unwrap();
-        let mut decoder = Decoder::new(infile).unwrap();
+        let mut decoder = Decoder::new(infile, 6).unwrap();
 
         let mut outframe = 0;
 
@@ -232,7 +232,7 @@ mod tests {
         let mut inp_audio_file = File::open("test_audio.wav").unwrap();
         let (audio_header, audio_data) = wav::read(&mut inp_audio_file).unwrap();
 
-        let mut encoder = Encoder::new(512, 384, 30, audio_header.sampling_rate, audio_header.channel_count as u32, 2);
+        let mut encoder = Encoder::new(512, 384, 30, audio_header.sampling_rate, audio_header.channel_count as u32, 2, 6);
 
         for frame_id in 1..162 {
             let frame_path = format!("test_frames/{:0>3}.png", frame_id);
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn test_decode_2() {
         let infile = File::open("test2.pfv").unwrap();
-        let mut decoder = Decoder::new(infile).unwrap();
+        let mut decoder = Decoder::new(infile, 6).unwrap();
 
         let channels = decoder.channels();
 
@@ -306,7 +306,7 @@ mod tests {
 
             let infile = Cursor::new(filebuf);
 
-            let mut decoder = Decoder::new(infile).unwrap();
+            let mut decoder = Decoder::new(infile, 6).unwrap();
 
             let mut outframe = 0;
 
@@ -346,6 +346,10 @@ mod tests {
     }
 
     fn save_frame<Q: AsRef<Path>>(path: Q, frame: &VideoFrame) {
+        if let Some(parent) = path.as_ref().parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+
         let plane_u = frame.plane_u.double();
         let plane_v = frame.plane_v.double();
 

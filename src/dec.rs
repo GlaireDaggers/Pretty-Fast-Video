@@ -25,6 +25,9 @@ pub struct Decoder<TReader: Read + Seek> {
     delta_accum: f64,
     audio_buf: Vec<i16>,
     eof: bool,
+    reset_pos: u64,
+    #[cfg(feature = "multithreading")]
+    threadpool: rayon::ThreadPool
 }
 
 #[derive(Debug)]
@@ -35,7 +38,8 @@ pub enum DecodeError {
 }
 
 impl<TReader: Read + Seek> Decoder<TReader> {
-    pub fn new(mut reader: TReader) -> Result<Decoder<TReader>, DecodeError> {
+    #[cfg(feature = "multithreading")]
+    pub fn new(mut reader: TReader, #[cfg(feature = "multithreading")] num_threads: usize) -> Result<Decoder<TReader>, DecodeError> {
         // read header
         let mut magic = [0;8];
         match reader.read_exact(&mut magic) {
@@ -124,9 +128,27 @@ impl<TReader: Read + Seek> Decoder<TReader> {
             qtables.push(qtable);
         }
 
-        Ok(Decoder { reader: reader, width: width as usize, height: height as usize, framerate: framerate as u32, samplerate: samplerate as u32,
-            channels: channels as u32, qtables: qtables, framebuffer: VideoFrame::new_padded(width as usize, height as usize),
-            retframe: VideoFrame::new(width as usize, height as usize), delta_accum: 0.0, audio_buf: Vec::new(), eof: false })
+        let reset_pos = match reader.stream_position() {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(DecodeError::IOError(e));
+            }
+        };
+
+        #[cfg(feature = "multithreading")]
+        {
+            Ok(Decoder { reader: reader, width: width as usize, height: height as usize, framerate: framerate as u32, samplerate: samplerate as u32,
+                channels: channels as u32, qtables: qtables, framebuffer: VideoFrame::new_padded(width as usize, height as usize),
+                retframe: VideoFrame::new(width as usize, height as usize), delta_accum: 0.0, audio_buf: Vec::new(), eof: false, reset_pos: reset_pos,
+                threadpool: rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap() })
+        }
+
+        #[cfg(not(feature = "multithreading"))]
+        {
+            Ok(Decoder { reader: reader, width: width as usize, height: height as usize, framerate: framerate as u32, samplerate: samplerate as u32,
+                channels: channels as u32, qtables: qtables, framebuffer: VideoFrame::new_padded(width as usize, height as usize),
+                retframe: VideoFrame::new(width as usize, height as usize), delta_accum: 0.0, audio_buf: Vec::new(), eof: false, reset_pos: reset_pos, })
+        }
     }
 
     pub fn width(self: &Decoder<TReader>) -> usize {
@@ -147,6 +169,12 @@ impl<TReader: Read + Seek> Decoder<TReader> {
 
     pub fn channels(self: &Decoder<TReader>) -> u32 {
         return self.channels;
+    }
+
+    pub fn reset(self: &mut Decoder<TReader>) -> Result<(), std::io::Error> {
+        self.eof = false;
+        self.reader.seek(std::io::SeekFrom::Start(self.reset_pos))?;
+        Ok(())
     }
 
     pub fn advance_delta<FV, FA>(self: &mut Decoder<TReader>, delta: f64, onvideo: &mut FV, onaudio: &mut FA) -> Result<bool, std::io::Error>  where
@@ -386,14 +414,29 @@ impl<TReader: Read + Seek> Decoder<TReader> {
         let mut subblocks = coefficients.chunks_exact(64);
 
         // deserialize each plane
-        Decoder::<TReader>::deserialize_plane(self.framebuffer.plane_y.width, self.framebuffer.plane_y.height,
-            &mut subblocks, qtable_y, &mut self.framebuffer.plane_y);
-            
-        Decoder::<TReader>::deserialize_plane(self.framebuffer.plane_u.width, self.framebuffer.plane_u.height,
-            &mut subblocks, qtable_u, &mut self.framebuffer.plane_u);
-            
-        Decoder::<TReader>::deserialize_plane(self.framebuffer.plane_v.width, self.framebuffer.plane_v.height,
-            &mut subblocks, qtable_v, &mut self.framebuffer.plane_v);
+        #[cfg(feature = "multithreading")]
+        {
+            Decoder::<TReader>::deserialize_plane(self.framebuffer.plane_y.width, self.framebuffer.plane_y.height,
+                &mut subblocks, qtable_y, &mut self.framebuffer.plane_y, &self.threadpool);
+                
+            Decoder::<TReader>::deserialize_plane(self.framebuffer.plane_u.width, self.framebuffer.plane_u.height,
+                &mut subblocks, qtable_u, &mut self.framebuffer.plane_u, &self.threadpool);
+                
+            Decoder::<TReader>::deserialize_plane(self.framebuffer.plane_v.width, self.framebuffer.plane_v.height,
+                &mut subblocks, qtable_v, &mut self.framebuffer.plane_v, &self.threadpool);
+        }
+
+        #[cfg(not(feature = "multithreading"))]
+        {
+            Decoder::<TReader>::deserialize_plane(self.framebuffer.plane_y.width, self.framebuffer.plane_y.height,
+                &mut subblocks, qtable_y, &mut self.framebuffer.plane_y);
+                
+            Decoder::<TReader>::deserialize_plane(self.framebuffer.plane_u.width, self.framebuffer.plane_u.height,
+                &mut subblocks, qtable_u, &mut self.framebuffer.plane_u);
+                
+            Decoder::<TReader>::deserialize_plane(self.framebuffer.plane_v.width, self.framebuffer.plane_v.height,
+                &mut subblocks, qtable_v, &mut self.framebuffer.plane_v);
+        }
 
         Ok(())
     }
@@ -493,19 +536,34 @@ impl<TReader: Read + Seek> Decoder<TReader> {
         let mut headers = block_headers.iter();
 
         // deserialize each plane
-        Decoder::<TReader>::deserialize_plane_delta(self.framebuffer.plane_y.width, self.framebuffer.plane_y.height,
-            &mut headers, &mut subblocks, qtable_y, &mut self.framebuffer.plane_y);
-            
-        Decoder::<TReader>::deserialize_plane_delta(self.framebuffer.plane_u.width, self.framebuffer.plane_u.height,
-            &mut headers, &mut subblocks, qtable_u, &mut self.framebuffer.plane_u);
-            
-        Decoder::<TReader>::deserialize_plane_delta(self.framebuffer.plane_v.width, self.framebuffer.plane_v.height,
-            &mut headers, &mut subblocks, qtable_v, &mut self.framebuffer.plane_v);
+        #[cfg(feature = "multithreading")]
+        {
+            Decoder::<TReader>::deserialize_plane_delta(self.framebuffer.plane_y.width, self.framebuffer.plane_y.height,
+                &mut headers, &mut subblocks, qtable_y, &mut self.framebuffer.plane_y, &self.threadpool);
+                
+            Decoder::<TReader>::deserialize_plane_delta(self.framebuffer.plane_u.width, self.framebuffer.plane_u.height,
+                &mut headers, &mut subblocks, qtable_u, &mut self.framebuffer.plane_u, &self.threadpool);
+                
+            Decoder::<TReader>::deserialize_plane_delta(self.framebuffer.plane_v.width, self.framebuffer.plane_v.height,
+                &mut headers, &mut subblocks, qtable_v, &mut self.framebuffer.plane_v, &self.threadpool);
+        }
+
+        #[cfg(not(feature = "multithreading"))]
+        {
+            Decoder::<TReader>::deserialize_plane_delta(self.framebuffer.plane_y.width, self.framebuffer.plane_y.height,
+                &mut headers, &mut subblocks, qtable_y, &mut self.framebuffer.plane_y);
+                
+            Decoder::<TReader>::deserialize_plane_delta(self.framebuffer.plane_u.width, self.framebuffer.plane_u.height,
+                &mut headers, &mut subblocks, qtable_u, &mut self.framebuffer.plane_u);
+                
+            Decoder::<TReader>::deserialize_plane_delta(self.framebuffer.plane_v.width, self.framebuffer.plane_v.height,
+                &mut headers, &mut subblocks, qtable_v, &mut self.framebuffer.plane_v);
+        }
 
         Ok(())
     }
 
-    fn deserialize_plane(width: usize, height: usize, subblocks: &mut ChunksExact<i16>, q_table: &[f32;64], target: &mut VideoPlane) {
+    fn deserialize_plane(width: usize, height: usize, subblocks: &mut ChunksExact<i16>, q_table: &[f32;64], target: &mut VideoPlane, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
         let blocks_wide = width / 16;
         let blocks_high = height / 16;
         let total_blocks = blocks_wide * blocks_high;
@@ -529,10 +587,15 @@ impl<TReader: Read + Seek> Decoder<TReader> {
             enc_plane.blocks.push(block);
         }
 
+        #[cfg(feature = "multithreading")]
+        VideoPlane::decode_plane_into(&enc_plane, q_table, target, tp);
+
+        #[cfg(not(feature = "multithreading"))]
         VideoPlane::decode_plane_into(&enc_plane, q_table, target);
     }
 
-    fn deserialize_plane_delta(width: usize, height: usize, headers: &mut Iter<DeltaBlockHeader>, subblocks: &mut ChunksExact<i16>, q_table: &[f32;64], target: &mut VideoPlane) {
+    fn deserialize_plane_delta(width: usize, height: usize, headers: &mut Iter<DeltaBlockHeader>, subblocks: &mut ChunksExact<i16>, q_table: &[f32;64], target: &mut VideoPlane,
+        #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
         let blocks_wide = width / 16;
         let blocks_high = height / 16;
         let total_blocks = blocks_wide * blocks_high;
@@ -570,6 +633,10 @@ impl<TReader: Read + Seek> Decoder<TReader> {
             enc_plane.blocks.push(block);
         }
 
+        #[cfg(feature = "multithreading")]
+        VideoPlane::decode_plane_delta_into(&enc_plane, target, q_table, tp);
+
+        #[cfg(not(feature = "multithreading"))]
         VideoPlane::decode_plane_delta_into(&enc_plane, target, q_table);
     }
 }
