@@ -10,7 +10,7 @@ mod rle;
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, fs::File, io::{Cursor, Seek, BufReader, Read}, time::Instant};
+    use std::{path::Path, fs::File, io::{Cursor, Seek, Read}, time::Instant};
 
     use bitstream_io::{BitWriter, BitWrite, BitReader, BitRead};
     use byteorder::{ReadBytesExt, LittleEndian};

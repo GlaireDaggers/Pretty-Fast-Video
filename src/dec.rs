@@ -170,36 +170,27 @@ impl<TReader: Read + Seek> Decoder<TReader> {
             // read next packet header
             // if we hit EOF, return false
 
-            let packet_type = match self.reader.read_u8() {
-                Ok(v) => v,
-                Err(e) => match e.kind() {
-                    std::io::ErrorKind::UnexpectedEof => {
-                        return Ok(false);
-                    }
-                    _ => {
-                        return Err(e);
-                    }
-                }
-            };
-
+            let packet_type = self.reader.read_u8()?;
             let packet_len = self.reader.read_u32::<LittleEndian>()?;
 
             match packet_type {
                 0 => {
-                    // skip frame with no payload - do nothing
-                    break;
+                    // EOF marker
+                    return Ok(false);
                 }
                 1 => {
-                    // iframe
-                    let mut data = vec![0;packet_len as usize];
-                    self.reader.read_exact(&mut data)?;
-                    self.decode_iframe(&data)?;
+                    // iframe. if payload length is zero, this is a drop frame (do nothing)
+                    if packet_len > 0 {
+                        let mut data = vec![0;packet_len as usize];
+                        self.reader.read_exact(&mut data)?;
+                        self.decode_iframe(&data)?;
 
-                    self.retframe.plane_y.blit(&self.framebuffer.plane_y, 0, 0, 0, 0, self.retframe.plane_y.width, self.retframe.plane_y.height);
-                    self.retframe.plane_u.blit(&self.framebuffer.plane_u, 0, 0, 0, 0, self.retframe.plane_u.width, self.retframe.plane_u.height);
-                    self.retframe.plane_v.blit(&self.framebuffer.plane_v, 0, 0, 0, 0, self.retframe.plane_v.width, self.retframe.plane_v.height);
+                        self.retframe.plane_y.blit(&self.framebuffer.plane_y, 0, 0, 0, 0, self.retframe.plane_y.width, self.retframe.plane_y.height);
+                        self.retframe.plane_u.blit(&self.framebuffer.plane_u, 0, 0, 0, 0, self.retframe.plane_u.width, self.retframe.plane_u.height);
+                        self.retframe.plane_v.blit(&self.framebuffer.plane_v, 0, 0, 0, 0, self.retframe.plane_v.width, self.retframe.plane_v.height);
 
-                    onvideo(&self.retframe);
+                        onvideo(&self.retframe);
+                    }
                     break;
                 }
                 2 => {

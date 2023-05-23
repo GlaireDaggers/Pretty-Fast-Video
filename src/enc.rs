@@ -124,12 +124,22 @@ impl Encoder {
             }
         }
 
+        Encoder::write_eof(writer)?;
+
+        Ok(())
+    }
+
+    fn write_eof<W: Write>(writer: &mut W) -> Result<(), std::io::Error> {
+        // write packet header
+        writer.write_u8(0)?; // packet type = EOF
+        writer.write_u32::<LittleEndian>(0)?;
+
         Ok(())
     }
 
     fn write_drop_packet<W: Write>(writer: &mut W) -> Result<(), std::io::Error> {
         // write packet header
-        writer.write_u8(0)?; // packet type = drop frame
+        writer.write_u8(1)?; // packet type = iframe
         writer.write_u32::<LittleEndian>(0)?;
 
         Ok(())
