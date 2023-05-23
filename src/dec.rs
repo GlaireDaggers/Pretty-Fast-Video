@@ -224,10 +224,10 @@ impl<TReader: Read + Seek> Decoder<TReader> {
         Ok(true)
     }
 
-    fn read_audio_frame(self: &mut Decoder<TReader>) -> Result<Vec<Vec<i16>>, std::io::Error> {
+    fn read_audio_frame<R: Read>(self: &mut Decoder<TReader>, reader: &mut R) -> Result<Vec<Vec<i16>>, std::io::Error> {
         // read number of samples per channel in this frame & number of slices
-        let samples = self.reader.read_u16::<LittleEndian>()? as i32;
-        let slice_count = self.reader.read_u16::<LittleEndian>()? as i32;
+        let samples = reader.read_u16::<LittleEndian>()? as i32;
+        let slice_count = reader.read_u16::<LittleEndian>()? as i32;
 
         let mut audio: Vec<Vec<i16>> = Vec::with_capacity(self.channels as usize);
 
@@ -239,11 +239,11 @@ impl<TReader: Read + Seek> Decoder<TReader> {
             let mut weight = [0;QOA_LMS_LEN];
 
             for i in 0..QOA_LMS_LEN {
-                history[i] = self.reader.read_i16::<LittleEndian>()? as i32;
+                history[i] = reader.read_i16::<LittleEndian>()? as i32;
             }
 
             for i in 0..QOA_LMS_LEN {
-                weight[i] = self.reader.read_i16::<LittleEndian>()? as i32;
+                weight[i] = reader.read_i16::<LittleEndian>()? as i32;
             }
 
             lmses.push(LMS { history: history, weight: weight });
@@ -252,7 +252,7 @@ impl<TReader: Read + Seek> Decoder<TReader> {
 
         for slice_idx in 0..slice_count {
             let slice_ch = slice_idx % self.channels as i32;
-            let mut slice = self.reader.read_u64::<LittleEndian>()?;
+            let mut slice = reader.read_u64::<LittleEndian>()?;
 
             // decode slice
             let scalefactor = slice & 0xF;
@@ -289,7 +289,7 @@ impl<TReader: Read + Seek> Decoder<TReader> {
 
         // read each frame in packet until total samples have been read
         while read_samples < samples {
-            let audio_frame = self.read_audio_frame()?;
+            let audio_frame = self.read_audio_frame(&mut reader)?;
 
             // unzip interleaved into audio buffer
             for (ch, buf) in audio_frame.iter().enumerate() {

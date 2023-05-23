@@ -11,7 +11,7 @@ mod qoa;
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, fs::File, io::{Cursor, Seek, Read}, time::Instant};
+    use std::{path::Path, fs::File, io::{Cursor, Seek, Read}, time::Instant, hint::black_box};
 
     use bitstream_io::{BitWriter, BitWrite, BitReader, BitRead};
     use byteorder::{ReadBytesExt, LittleEndian};
@@ -229,7 +229,10 @@ mod tests {
 
     #[test]
     fn test_encode_2() {
-        let mut encoder = Encoder::new(512, 384, 30, 44100, 2, 2);
+        let mut inp_audio_file = File::open("test_audio.wav").unwrap();
+        let (audio_header, audio_data) = wav::read(&mut inp_audio_file).unwrap();
+
+        let mut encoder = Encoder::new(512, 384, 30, audio_header.sampling_rate, audio_header.channel_count as u32, 2);
 
         for frame_id in 1..162 {
             let frame_path = format!("test_frames/{:0>3}.png", frame_id);
@@ -244,6 +247,28 @@ mod tests {
             println!("Encoded: {} / {}", frame_id, 162);
         }
 
+        let audio_data: Vec<i16> = match audio_data {
+            wav::BitDepth::Eight(v) => {
+                v.iter().map(|x| {
+                    let f = (*x as f32 / 128.0) - 1.0;
+                    (f * 32768.0) as i16
+                }).collect()
+            }
+            wav::BitDepth::Sixteen(v) => {
+                v
+            }
+            wav::BitDepth::ThirtyTwoFloat(v) => {
+                v.iter().map(|x| {
+                    (*x * 32768.0) as i16
+                }).collect()
+            }
+            _ => {
+                panic!("Not implemented")
+            }
+        };
+
+        encoder.append_audio(&audio_data);
+
         let mut outfile = File::create("test2.pfv").unwrap();
         encoder.write(&mut outfile).unwrap();
 
@@ -255,6 +280,8 @@ mod tests {
         let infile = File::open("test2.pfv").unwrap();
         let mut decoder = Decoder::new(infile).unwrap();
 
+        let channels = decoder.channels();
+
         let mut outframe = 0;
 
         while decoder.advance_frame(&mut |frame| {
@@ -263,7 +290,9 @@ mod tests {
             save_frame(frame_out_path, frame);
             outframe += 1;
             println!("Decoded {}", outframe);
-        }, &mut |_| {}).unwrap() {}
+        }, &mut |audio| {
+            println!("Decoded audio ({} samples)", audio.len() / channels as usize);
+        }).unwrap() {}
     }
 
     #[test]
@@ -283,8 +312,9 @@ mod tests {
 
             let start = Instant::now();
 
-            while decoder.advance_frame(&mut |_| {
+            while decoder.advance_frame(&mut |frame| {
                 outframe += 1;
+                black_box(frame);
             }, &mut |_| {}).unwrap() {}
 
             let duration = start.elapsed().as_millis();

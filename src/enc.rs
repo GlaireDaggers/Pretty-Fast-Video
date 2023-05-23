@@ -47,6 +47,10 @@ impl Encoder {
     }
 
     pub fn append_audio(self: &mut Encoder, audio: &[i16]) {
+        for ch in &mut self.audio_buf {
+            ch.reserve(audio.len() / self.channels as usize);
+        }
+
         // split interleaved audio data into one buffer per channel
         for sample in audio.chunks_exact(self.channels as usize) {
             for ch in 0..self.channels as usize {
@@ -253,6 +257,9 @@ impl Encoder {
     }
 
     fn write_audio_packet<W: Write>(audio: &Vec<Vec<i16>>, writer: &mut W) -> Result<(), std::io::Error> {
+        // write audio data to temporary buffer
+        let mut payload = Cursor::new(Vec::new());
+
         let samples = audio[0].len();
 
         assert!(samples < 65536);
@@ -279,7 +286,7 @@ impl Encoder {
         }
 
         // write total samples in audio packet
-        writer.write_u16::<LittleEndian>(samples as u16)?;
+        payload.write_u16::<LittleEndian>(samples as u16)?;
 
         // for each encoded frame:
         //  write number of samples per channel in frame
@@ -288,23 +295,30 @@ impl Encoder {
         //  write each slice in frame
 
         for frame in &frames {
-            writer.write_u16::<LittleEndian>(frame.samples as u16)?;
-            writer.write_u16::<LittleEndian>(frame.slices.len() as u16)?;
+            payload.write_u16::<LittleEndian>(frame.samples as u16)?;
+            payload.write_u16::<LittleEndian>(frame.slices.len() as u16)?;
 
             for lms in &frame.lmses {
                 for history in lms.history {
-                    writer.write_i16::<LittleEndian>(history as i16)?;
+                    payload.write_i16::<LittleEndian>(history as i16)?;
                 }
 
                 for weight in lms.weight {
-                    writer.write_i16::<LittleEndian>(weight as i16)?;
+                    payload.write_i16::<LittleEndian>(weight as i16)?;
                 }
             }
 
             for slice in &frame.slices {
-                writer.write_u64::<LittleEndian>(*slice)?;
+                payload.write_u64::<LittleEndian>(*slice)?;
             }
         }
+
+        let packet_data = payload.into_inner();
+
+        // write packet header + data
+        writer.write_u8(3)?; // packet type = audio
+        writer.write_u32::<LittleEndian>(packet_data.len() as u32)?;
+        writer.write_all(&packet_data)?;
 
         Ok(())
     }
