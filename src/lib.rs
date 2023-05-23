@@ -222,7 +222,7 @@ mod tests {
             let frame_out_path = format!("test_frames_out/{:0>3}.png", outframe);
             save_frame(frame_out_path, frame);
             outframe += 1;
-        }, &mut || {}).unwrap() {}
+        }, &mut |_| {}).unwrap() {}
 
         println!("Decoded {} frames", outframe);
     }
@@ -263,7 +263,7 @@ mod tests {
             save_frame(frame_out_path, frame);
             outframe += 1;
             println!("Decoded {}", outframe);
-        }, &mut || {}).unwrap() {}
+        }, &mut |_| {}).unwrap() {}
     }
 
     #[test]
@@ -285,7 +285,7 @@ mod tests {
 
             while decoder.advance_frame(&mut |_| {
                 outframe += 1;
-            }, &mut || {}).unwrap() {}
+            }, &mut |_| {}).unwrap() {}
 
             let duration = start.elapsed().as_millis();
             println!("Decoded {} frames in {} ms", outframe, duration);

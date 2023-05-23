@@ -3,7 +3,7 @@ use std::{io::{Read, Seek, Cursor}, slice::{ChunksExact, Iter}};
 use bitstream_io::{BitReader, BitRead};
 use byteorder::{ReadBytesExt, LittleEndian};
 
-use crate::{common::{PFV_MAGIC, PFV_VERSION, EncodedMacroBlock, EncodedIPlane, DeltaEncodedMacroBlock, EncodedPPlane}, huffman::{HuffmanTree, HuffmanError}, frame::VideoFrame, plane::VideoPlane, dct::DctQuantizedMatrix8x8};
+use crate::{common::{PFV_MAGIC, PFV_VERSION, EncodedMacroBlock, EncodedIPlane, DeltaEncodedMacroBlock, EncodedPPlane}, huffman::{HuffmanTree, HuffmanError}, frame::VideoFrame, plane::VideoPlane, dct::DctQuantizedMatrix8x8, qoa::{LMS, QOA_LMS_LEN, QOA_SLICE_LEN, qoa_lms_predict, QOA_DEQUANT_TABLE}};
 
 #[derive(Debug, Clone, Copy)]
 struct DeltaBlockHeader {
@@ -23,6 +23,7 @@ pub struct Decoder<TReader: Read + Seek> {
     framebuffer: VideoFrame,
     retframe: VideoFrame,
     delta_accum: f64,
+    audio_buf: Vec<i16>,
 }
 
 #[derive(Debug)]
@@ -124,7 +125,7 @@ impl<TReader: Read + Seek> Decoder<TReader> {
 
         Ok(Decoder { reader: reader, width: width as usize, height: height as usize, framerate: framerate as u32, samplerate: samplerate as u32,
             channels: channels as u32, qtables: qtables, framebuffer: VideoFrame::new_padded(width as usize, height as usize),
-            retframe: VideoFrame::new(width as usize, height as usize), delta_accum: 0.0 })
+            retframe: VideoFrame::new(width as usize, height as usize), delta_accum: 0.0, audio_buf: Vec::new() })
     }
 
     pub fn width(self: &Decoder<TReader>) -> usize {
@@ -149,7 +150,7 @@ impl<TReader: Read + Seek> Decoder<TReader> {
 
     pub fn advance_delta<FV, FA>(self: &mut Decoder<TReader>, delta: f64, onvideo: &mut FV, onaudio: &mut FA) -> Result<bool, std::io::Error>  where
         FV: FnMut(&VideoFrame),
-        FA: FnMut() {
+        FA: FnMut(&[i16]) {
         self.delta_accum += delta;
         let delta_per_frame = 1.0 / self.framerate as f64;
 
@@ -165,7 +166,7 @@ impl<TReader: Read + Seek> Decoder<TReader> {
 
     pub fn advance_frame<FV, FA>(self: &mut Decoder<TReader>, onvideo: &mut FV, onaudio: &mut FA) -> Result<bool, std::io::Error> where
         FV: FnMut(&VideoFrame),
-        FA: FnMut() {
+        FA: FnMut(&[i16]) {
         loop {
             // read next packet header
             // if we hit EOF, return false
@@ -207,9 +208,11 @@ impl<TReader: Read + Seek> Decoder<TReader> {
                     break;
                 }
                 3 => {
-                    // TODO: decode audio frame
-                    self.reader.seek(std::io::SeekFrom::Current(packet_len as i64))?;
-                    onaudio();
+                    // audio frame
+                    let mut data = vec![0;packet_len as usize];
+                    self.reader.read_exact(&mut data)?;
+                    self.decode_audio(&data)?;
+                    onaudio(&self.audio_buf);
                 }
                 _ => {
                     // unrecognized packet type, just skip over packet payload
@@ -219,6 +222,86 @@ impl<TReader: Read + Seek> Decoder<TReader> {
         }
 
         Ok(true)
+    }
+
+    fn read_audio_frame(self: &mut Decoder<TReader>) -> Result<Vec<Vec<i16>>, std::io::Error> {
+        // read number of samples per channel in this frame & number of slices
+        let samples = self.reader.read_u16::<LittleEndian>()? as i32;
+        let slice_count = self.reader.read_u16::<LittleEndian>()? as i32;
+
+        let mut audio: Vec<Vec<i16>> = Vec::with_capacity(self.channels as usize);
+
+        // read LMS state
+        let mut lmses = Vec::with_capacity(self.channels as usize);
+
+        for _ in 0..self.channels {
+            let mut history = [0;QOA_LMS_LEN];
+            let mut weight = [0;QOA_LMS_LEN];
+
+            for i in 0..QOA_LMS_LEN {
+                history[i] = self.reader.read_i16::<LittleEndian>()? as i32;
+            }
+
+            for i in 0..QOA_LMS_LEN {
+                weight[i] = self.reader.read_i16::<LittleEndian>()? as i32;
+            }
+
+            lmses.push(LMS { history: history, weight: weight });
+            audio.push(vec![0;samples as usize]);
+        }
+
+        for slice_idx in 0..slice_count {
+            let slice_ch = slice_idx % self.channels as i32;
+            let mut slice = self.reader.read_u64::<LittleEndian>()?;
+
+            // decode slice
+            let scalefactor = slice & 0xF;
+            slice = slice >> 4;
+
+            let slice_start = (slice_idx / self.channels as i32) as usize * QOA_SLICE_LEN;
+            let slice_end = (slice_start + QOA_SLICE_LEN).clamp(0, samples as usize);
+
+            for i in slice_start..slice_end {
+                let quantized = slice & 0x7;
+                slice >>= 3;
+                let predicted = qoa_lms_predict(lmses[slice_ch as usize]);
+                let dequantized = QOA_DEQUANT_TABLE[scalefactor as usize][quantized as usize];
+                let reconstructed = (predicted + dequantized).clamp(i16::MIN as i32, i16::MAX as i32);
+
+                audio[slice_ch as usize][i] = reconstructed as i16;
+                lmses[slice_ch as usize].update(reconstructed, dequantized);
+            }
+        }
+
+        Ok(audio)
+    }
+
+    fn decode_audio(self: &mut Decoder<TReader>, payload: &[u8]) -> Result<(), std::io::Error> {
+        let mut reader = Cursor::new(payload);
+
+        // read total number of samples in packet
+        let samples = reader.read_u16::<LittleEndian>()? as usize;
+        let mut read_samples = 0;
+
+        let total_len = samples * self.channels as usize;
+        
+        self.audio_buf.resize(total_len, 0);
+
+        // read each frame in packet until total samples have been read
+        while read_samples < samples {
+            let audio_frame = self.read_audio_frame()?;
+
+            // unzip interleaved into audio buffer
+            for (ch, buf) in audio_frame.iter().enumerate() {
+                for (idx, s) in buf.iter().enumerate() {
+                    self.audio_buf[(idx * self.channels as usize) + ch] = *s;
+                }
+            }
+
+            read_samples += audio_frame[0].len();
+        }
+
+        Ok(())
     }
 
     fn decode_iframe(self: &mut Decoder<TReader>, payload: &[u8]) -> Result<(), std::io::Error> {
