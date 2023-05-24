@@ -1,10 +1,10 @@
 [package]
 name = "pfv-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Library for working with PFV (a toy MPEG-like video codec)"
 license = "MIT"
-repository = "https://github.com/GlaireDaggers/Pretty-Good-Video"
+repository = "https://github.com/GlaireDaggers/Pretty-Fast-Video"
 authors = ["Hazel Stagner"]
 exclude = ["*.png", "*.wav", "*.pfv", "/demo", "*.bin"]
 categories = ["multimedia::video", "multimedia::encoding"]
