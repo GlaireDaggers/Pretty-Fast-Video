@@ -124,23 +124,20 @@ impl VideoPlane {
         EncodedMacroBlock { subblocks: subblocks }
     }
 
-    fn encode_block_delta(src: &VideoPlane, refplane: &VideoPlane, bx: usize, by: usize, q_table: &[f32;64], px_err: f32) -> DeltaEncodedMacroBlock {
-        debug_assert!(src.width == 16 && src.height == 16);
-
-        // brute force search around block pos to find delta which minimizes error
+    fn block_search(src: &VideoPlane, refplane: &VideoPlane, cx: i32, cy: i32, stepsize: i32) -> (i32, i32, f32, VideoPlane) {
         let mut best_dx = 0;
         let mut best_dy = 0;
         let mut best_err = f32::INFINITY;
+        let mut best_slice = VideoPlane::new(16, 16);
 
-        let min_err = px_err * px_err * 256.0;
-
-        for my in -16..16 {
-            let offsy = by as i32 + my;
+        // search 8 locations around center point at multiples of step size
+        for my in -1..2 {
+            let offsy = cy + (my * stepsize);
             if offsy < 0 || offsy > refplane.height as i32 - 16 {
                 continue;
             }
-            for mx in -16..16 {
-                let offsx = bx as i32 + mx;
+            for mx in -1..2 {
+                let offsx = cx + (mx * stepsize);
                 if offsx < 0 || offsx > refplane.width as i32 - 16 {
                     continue;
                 }
@@ -149,14 +146,35 @@ impl VideoPlane {
                 let err = VideoPlane::calc_error(src, &slice, best_err);
 
                 if err < best_err {
+                    best_slice.pixels.copy_from_slice(&slice.pixels);
                     best_err = err;
-                    best_dx = mx;
-                    best_dy = my;
+                    best_dx = mx * stepsize;
+                    best_dy = my * stepsize;
                 }
             }
         }
 
-        let prev_block = refplane.get_slice((bx as i32 + best_dx) as usize, (by as i32 + best_dy) as usize, 16, 16);
+        if stepsize > 1 {
+            let (dx2, dy2, err2, slice2) = VideoPlane::block_search(src, refplane, cx + best_dx, cy + best_dy, stepsize / 2);
+            return (best_dx + dx2, best_dy + dy2, err2, slice2);
+        } else {
+            return (best_dx, best_dy, best_err, best_slice);
+        }
+    }
+
+    fn encode_block_delta(src: &VideoPlane, refplane: &VideoPlane, bx: usize, by: usize, q_table: &[f32;64], px_err: f32) -> DeltaEncodedMacroBlock {
+        debug_assert!(src.width == 16 && src.height == 16);
+
+        let min_err = px_err * px_err * 256.0;
+
+        // four step search around block pos to find delta which minimizes error
+        let (best_dx, best_dy, best_err, prev_block) = VideoPlane::block_search(src, refplane, bx as i32, by as i32, 8);
+
+        let sx = bx as i32 + best_dx;
+        let sy = by as i32 + best_dy;
+
+        assert!(sx >= 0 && sx <= refplane.width as i32 - 16);
+        assert!(sy >= 0 && sy <= refplane.height as i32 - 16);
 
         // if the best delta is small enough, skip coefficients
         if best_err <= min_err {
