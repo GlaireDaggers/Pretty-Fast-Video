@@ -46,9 +46,9 @@ use pgv_rs::dec::Decoder;
 
 let mut dec = Decoder::new(my_file, num_threads).unwrap();
 
-while dec.advance_delta(delta_time, |frame| {
+while dec.advance_delta(delta_time, &mut |frame| {
     // do something with returned &VideoFrame
-}, |audio| {
+}, &mut |audio| {
     // do something with returned &[i16]
 }).unwrap() {}
 ```

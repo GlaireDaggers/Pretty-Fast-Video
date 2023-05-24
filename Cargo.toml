@@ -1,6 +1,6 @@
 [package]
 name = "pfv-rs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Library for working with PFV (a toy MPEG-like video codec)"
 license = "MIT"
