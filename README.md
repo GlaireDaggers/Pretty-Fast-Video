@@ -9,6 +9,54 @@ Goals are to improve:
 - Codec structure
 - (Hopefully) performance
 
+## Usage
+
+### Encoding Video
+
+Create pfv_rs::enc::Encoder, feed in frames & audio, and then write to file:
+
+```
+use pfv_rs::enc::Encoder;
+
+let mut enc = Encoder::new(width, height, framerate, samplerate, audio_channels, quality, num_threads);
+
+// feed in frames as VideoFrames (1 keyframe every 15 frames)
+for (idx, frame) in &my_frames.iter().enumerate() {
+  if idx % 15 == 0 {
+    enc.encode_iframe(frame);
+  } else {
+    enc.encode_pframe(frame);
+  }
+}
+
+// append audio to be encoded (interleaved L/R samples)
+enc.append_audio(my_audio);
+
+// write file to disk
+let mut out_video = File::create("my_video.pfv").unwrap();
+enc.write(&mut out_video).unwrap();
+```
+
+### Decoding Video
+
+Create pfv_rs::dec::Decoder and call advance_delta every frame, passing in elapsed time since previous frame, and handling video & audio using closures:
+
+```
+use pgv_rs::dec::Decoder;
+
+let mut dec = Decoder::new(my_file).unwrap();
+
+while dec.advance_delta(delta_time, |frame| {
+    // do something with returned &VideoFrame
+}, |audio| {
+    // do something with returned &[i16]
+}).unwrap() {}
+```
+
+Alternatively, you may call advance_frame to skip directly to the next frame without passing a delta parameter. The signature is the same.
+
+Both functions will also return Ok(true) if there is more data to read in the file, or Ok(false) if the decoder has reached the end of the file.
+
 ## Algorithms
 
 ### Video
