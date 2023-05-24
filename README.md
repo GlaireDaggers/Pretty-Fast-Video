@@ -44,7 +44,7 @@ Create pfv_rs::dec::Decoder and call advance_delta every frame, passing in elaps
 ```rs
 use pgv_rs::dec::Decoder;
 
-let mut dec = Decoder::new(my_file).unwrap();
+let mut dec = Decoder::new(my_file, num_threads).unwrap();
 
 while dec.advance_delta(delta_time, |frame| {
     // do something with returned &VideoFrame
