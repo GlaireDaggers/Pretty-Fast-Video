@@ -38,7 +38,6 @@ pub enum DecodeError {
 }
 
 impl<TReader: Read + Seek> Decoder<TReader> {
-    #[cfg(feature = "multithreading")]
     pub fn new(mut reader: TReader, #[cfg(feature = "multithreading")] num_threads: usize) -> Result<Decoder<TReader>, DecodeError> {
         // read header
         let mut magic = [0;8];
