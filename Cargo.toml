@@ -6,7 +6,7 @@ description = "Library for working with PFV (a toy MPEG-like video codec)"
 license = "MIT"
 repository = "https://github.com/GlaireDaggers/Pretty-Good-Video"
 authors = ["Hazel Stagner"]
-exclude = ["*.png", "*.wav", "*.pfv", "/demo"]
+exclude = ["*.png", "*.wav", "*.pfv", "/demo", "*.bin"]
 categories = ["multimedia::video", "multimedia::encoding"]
 keywords = ["codec", "video", "av"]
 
