@@ -15,7 +15,7 @@ Goals are to improve:
 
 Create pfv_rs::enc::Encoder, feed in frames & audio, and then write to file:
 
-```
+```rs
 use pfv_rs::enc::Encoder;
 
 let mut enc = Encoder::new(width, height, framerate, samplerate, audio_channels, quality, num_threads);
@@ -41,7 +41,7 @@ enc.write(&mut out_video).unwrap();
 
 Create pfv_rs::dec::Decoder and call advance_delta every frame, passing in elapsed time since previous frame, and handling video & audio using closures:
 
-```
+```rs
 use pgv_rs::dec::Decoder;
 
 let mut dec = Decoder::new(my_file).unwrap();
