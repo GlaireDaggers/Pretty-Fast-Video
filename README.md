@@ -63,6 +63,8 @@ Both functions will also return Ok(true) if there is more data to read in the fi
 
 Video frame encoding is pretty standard as far as video codecs go. Frames are split into 16x16 macroblocks, which are further divided into 8x8 subblocks. Each subblock is DCT transformed & quantized to reduce the number of bits required for storage. Coefficients are further compressed using entropy coding.
 
+PFV also employs 4:2:0 chroma subsampling - so U and V chroma planes are half the size of the Y plane on each axis.
+
 There are three kinds of frames: drop frames, i-frames, and p-frames.
 
 - Drop frames encode nothing, and are just treated as being unchanged since the previous frame.
