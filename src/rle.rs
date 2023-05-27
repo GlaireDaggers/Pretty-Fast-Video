@@ -38,15 +38,18 @@ pub fn rle_encode(into: &mut Vec<RLESequence>, data: &[i16]) {
     }
 }
 
-pub fn rle_create_huffman(sequence: &[RLESequence]) -> HuffmanTree {
-    let mut table: [i32;16] = [0;16];
-    let mut max = 0;
+pub fn update_table(table: &mut [i32;16], sequence: &[RLESequence]) {
     for s in sequence {
         debug_assert!(s.num_zeroes < 16 && s.coeff_size < 16);
         table[s.num_zeroes as usize] += 1;
         table[s.coeff_size as usize] += 1;
-        max = max.max(table[s.num_zeroes as usize]);
-        max = max.max(table[s.coeff_size as usize]);
+    }
+}
+
+pub fn rle_create_huffman(table: &[i32;16]) -> HuffmanTree {
+    let mut max = 0;
+    for x in table {
+        max = max.max(*x);
     }
 
     let table = table.map(|x| {

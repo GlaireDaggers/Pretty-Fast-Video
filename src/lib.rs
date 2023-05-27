@@ -64,7 +64,10 @@ mod tests {
         let mut rle_sequence = Vec::new();
         rle::rle_encode(&mut rle_sequence, &test_data);
 
-        let tree = rle::rle_create_huffman(&rle_sequence);
+        let mut table = [0;16];
+        rle::update_table(&mut table, &rle_sequence);
+
+        let tree = rle::rle_create_huffman(&table);
         let mut tmp_buf = Cursor::new(Vec::new());
         let mut bitwriter = BitWriter::endian(&mut tmp_buf, bitstream_io::LittleEndian);
 
@@ -134,7 +137,10 @@ mod tests {
         let mut rle_sequence = Vec::new();
         rle::rle_encode(&mut rle_sequence, &test_data);
 
-        let tree = rle::rle_create_huffman(&rle_sequence);
+        let mut table = [0;16];
+        rle::update_table(&mut table, &rle_sequence);
+
+        let tree = rle::rle_create_huffman(&table);
         let mut tmp_buf = Cursor::new(Vec::new());
         let mut bitwriter = BitWriter::endian(&mut tmp_buf, bitstream_io::LittleEndian);
 

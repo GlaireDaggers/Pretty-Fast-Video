@@ -1,5 +1,5 @@
 pub const PFV_MAGIC: &[u8] = b"PFVIDEO\0";
-pub const PFV_VERSION: u32 = 100;
+pub const PFV_VERSION: u32 = 101;
 
 use crate::{dct::{DctQuantizedMatrix8x8, DctMatrix8x8}, plane::VideoPlane};
 
@@ -291,6 +291,18 @@ impl VideoPlane {
             let dst_offset = (dest_row * self.width) + dx;
 
             self.pixels[dst_offset..(dst_offset + 16)].copy_from_slice(&block.pixels[src_offset..(src_offset + 16)]);
+        }
+    }
+
+    pub fn blit_subblock(self: &mut VideoPlane, block: &DctMatrix8x8, dx: usize, dy: usize) {
+        for row in 0..8 {
+            let dest_row = row + dy;
+            let src_offset = row * 8;
+            let dst_offset = (dest_row * self.width) + dx;
+
+            for column in 0..8 {
+                self.pixels[dst_offset + column] = (block.m[src_offset + column] + 128.0) as u8;
+            }
         }
     }
 

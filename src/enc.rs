@@ -8,7 +8,7 @@ use crate::frame::VideoFrame;
 use crate::dct::{Q_TABLE_INTER, Q_TABLE_INTRA};
 use crate::plane::VideoPlane;
 use crate::qoa::{LMS, EncodedAudioFrame, QOA_SLICE_LEN, QOA_LMS_LEN, QOA_DEQUANT_TABLE, qoa_lms_predict, qoa_div, QOA_QUANT_TABLE, QOA_FRAME_LEN};
-use crate::rle::{rle_encode, rle_create_huffman};
+use crate::rle::{rle_encode, rle_create_huffman, update_table};
 
 pub struct Encoder {
     width: usize,
@@ -404,36 +404,51 @@ impl Encoder {
         let mut packet_data = Cursor::new(Vec::new());
         let mut bitwriter = BitWriter::endian(&mut packet_data, bitstream_io::LittleEndian);
 
-        // gather coefficients for each plane into one buffer
-        let mut coeff = Vec::new();
+        // gather RLE-encoded block coefficients for each plane
+        let mut block_coeff = Vec::new();
+        let mut symbol_table = [0;16];
 
         for b in &f.y.blocks {
+            let mut coeff = Vec::new();
             coeff.extend_from_slice(&b.subblocks[0].m);
             coeff.extend_from_slice(&b.subblocks[1].m);
             coeff.extend_from_slice(&b.subblocks[2].m);
             coeff.extend_from_slice(&b.subblocks[3].m);
+            let mut rle_sequence = Vec::new();
+            rle_encode(&mut rle_sequence, &coeff);
+            update_table(&mut symbol_table, &rle_sequence);
+
+            block_coeff.push(rle_sequence);
         }
 
         for b in &f.u.blocks {
+            let mut coeff = Vec::new();
             coeff.extend_from_slice(&b.subblocks[0].m);
             coeff.extend_from_slice(&b.subblocks[1].m);
             coeff.extend_from_slice(&b.subblocks[2].m);
             coeff.extend_from_slice(&b.subblocks[3].m);
+            let mut rle_sequence = Vec::new();
+            rle_encode(&mut rle_sequence, &coeff);
+            update_table(&mut symbol_table, &rle_sequence);
+
+            block_coeff.push(rle_sequence);
         }
 
         for b in &f.v.blocks {
+            let mut coeff = Vec::new();
             coeff.extend_from_slice(&b.subblocks[0].m);
             coeff.extend_from_slice(&b.subblocks[1].m);
             coeff.extend_from_slice(&b.subblocks[2].m);
             coeff.extend_from_slice(&b.subblocks[3].m);
+            let mut rle_sequence = Vec::new();
+            rle_encode(&mut rle_sequence, &coeff);
+            update_table(&mut symbol_table, &rle_sequence);
+
+            block_coeff.push(rle_sequence);
         }
 
-        // run length encode all coefficients for this frame
-        let mut rle_sequence = Vec::new();
-        rle_encode(&mut rle_sequence, &coeff);
-
         // create huffman tree for encoding RLE results
-        let tree = rle_create_huffman(&rle_sequence);
+        let tree = rle_create_huffman(&symbol_table);
         let tree_table = tree.get_table();
 
         // write symbol frequency table
@@ -447,18 +462,20 @@ impl Encoder {
         bitwriter.write(8, 0_u8)?;
         bitwriter.write(8, 0_u8)?;
 
-        // serialize RLE to bitstream
-        for sq in &rle_sequence {
-            let num_zeroes = tree.get_code(sq.num_zeroes);
-            let num_bits = tree.get_code(sq.coeff_size);
+        // serialize blocks to bitstream
+        for block in &block_coeff {
+            for sq in block {
+                let num_zeroes = tree.get_code(sq.num_zeroes);
+                let num_bits = tree.get_code(sq.coeff_size);
 
-            debug_assert!(num_zeroes.len > 0 && num_bits.len > 0);
+                debug_assert!(num_zeroes.len > 0 && num_bits.len > 0);
 
-            bitwriter.write(num_zeroes.len, num_zeroes.val)?;
-            bitwriter.write(num_bits.len, num_bits.val)?;
+                bitwriter.write(num_zeroes.len, num_zeroes.val)?;
+                bitwriter.write(num_bits.len, num_bits.val)?;
 
-            if sq.coeff_size > 0 {
-                bitwriter.write_signed(sq.coeff_size as u32, sq.coeff)?;
+                if sq.coeff_size > 0 {
+                    bitwriter.write_signed(sq.coeff_size as u32, sq.coeff)?;
+                }
             }
         }
 
@@ -482,16 +499,23 @@ impl Encoder {
         let mut packet_data = Cursor::new(Vec::new());
         let mut bitwriter = BitWriter::endian(&mut packet_data, bitstream_io::LittleEndian);
 
-        // gather coefficients for each plane into one buffer
-        let mut coeff = Vec::new();
+        // gather RLE-encoded block coefficients for each plane
+        let mut block_coeff = Vec::new();
+        let mut symbol_table = [0;16];
 
         for b in &f.y.blocks {
             match b.subblocks {
                 Some(subblocks) => {
+                    let mut coeff = Vec::new();
                     coeff.extend_from_slice(&subblocks[0].m);
                     coeff.extend_from_slice(&subblocks[1].m);
                     coeff.extend_from_slice(&subblocks[2].m);
                     coeff.extend_from_slice(&subblocks[3].m);
+                    let mut rle_sequence = Vec::new();
+                    rle_encode(&mut rle_sequence, &coeff);
+                    update_table(&mut symbol_table, &rle_sequence);
+
+                    block_coeff.push(rle_sequence);
                 }
                 None => {
                 }
@@ -501,10 +525,16 @@ impl Encoder {
         for b in &f.u.blocks {
             match b.subblocks {
                 Some(subblocks) => {
+                    let mut coeff = Vec::new();
                     coeff.extend_from_slice(&subblocks[0].m);
                     coeff.extend_from_slice(&subblocks[1].m);
                     coeff.extend_from_slice(&subblocks[2].m);
                     coeff.extend_from_slice(&subblocks[3].m);
+                    let mut rle_sequence = Vec::new();
+                    rle_encode(&mut rle_sequence, &coeff);
+                    update_table(&mut symbol_table, &rle_sequence);
+
+                    block_coeff.push(rle_sequence);
                 }
                 None => {
                 }
@@ -514,22 +544,24 @@ impl Encoder {
         for b in &f.v.blocks {
             match b.subblocks {
                 Some(subblocks) => {
+                    let mut coeff = Vec::new();
                     coeff.extend_from_slice(&subblocks[0].m);
                     coeff.extend_from_slice(&subblocks[1].m);
                     coeff.extend_from_slice(&subblocks[2].m);
                     coeff.extend_from_slice(&subblocks[3].m);
+                    let mut rle_sequence = Vec::new();
+                    rle_encode(&mut rle_sequence, &coeff);
+                    update_table(&mut symbol_table, &rle_sequence);
+
+                    block_coeff.push(rle_sequence);
                 }
                 None => {
                 }
             }
         }
 
-        // run length encode all coefficients for this frame
-        let mut rle_sequence = Vec::new();
-        rle_encode(&mut rle_sequence, &coeff);
-
         // create huffman tree for encoding RLE results
-        let tree = rle_create_huffman(&rle_sequence);
+        let tree = rle_create_huffman(&symbol_table);
         let tree_table = tree.get_table();
 
         // write symbol frequency table
@@ -583,16 +615,18 @@ impl Encoder {
             }
         }
 
-        // serialize RLE to bitstream
-        for sq in &rle_sequence {
-            let num_zeroes = tree.get_code(sq.num_zeroes);
-            let num_bits = tree.get_code(sq.coeff_size);
+        // serialize block data to bitstream
+        for block in &block_coeff {
+            for sq in block {
+                let num_zeroes = tree.get_code(sq.num_zeroes);
+                let num_bits = tree.get_code(sq.coeff_size);
 
-            bitwriter.write(num_zeroes.len, num_zeroes.val)?;
-            bitwriter.write(num_bits.len, num_bits.val)?;
+                bitwriter.write(num_zeroes.len, num_zeroes.val)?;
+                bitwriter.write(num_bits.len, num_bits.val)?;
 
-            if sq.coeff_size > 0 {
-                bitwriter.write_signed(sq.coeff_size as u32, sq.coeff)?;
+                if sq.coeff_size > 0 {
+                    bitwriter.write_signed(sq.coeff_size as u32, sq.coeff)?;
+                }
             }
         }
 

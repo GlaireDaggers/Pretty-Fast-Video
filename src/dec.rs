@@ -472,7 +472,6 @@ impl<TReader: Read + Seek> Decoder<TReader> {
         let total_blocks = (blocks_wide * blocks_high) + (chroma_blocks_wide * chroma_blocks_high * 2);
 
         let mut block_headers = Vec::with_capacity(total_blocks);
-        let mut coeff_count = 0;
 
         for _ in 0..total_blocks {
             let mut header = DeltaBlockHeader { mvec_x: 0, mvec_y: 0, has_coeff: false };
@@ -482,53 +481,54 @@ impl<TReader: Read + Seek> Decoder<TReader> {
             if has_mvec {
                 header.mvec_x = bitreader.read_signed(7)?;
                 header.mvec_y = bitreader.read_signed(7)?;
-
-                assert!(header.mvec_x >= -16 && header.mvec_x <= 16);
-                assert!(header.mvec_y >= -16 && header.mvec_y <= 16);
-            }
-
-            if header.has_coeff {
-                coeff_count += 256;
             }
 
             block_headers.push(header);
         }
 
-        // decode RLE coefficients
+        // decode block coefficients
 
-        let mut coefficients = vec![0;coeff_count as usize];
+        let mut coefficients = vec![0;total_blocks * 256];
 
-        let mut out_idx = 0;
-        while out_idx < coefficients.len() {
-            let num_zeroes = match tree.read(&mut bitreader, bitstream_length) {
-                Ok(v) => v,
-                Err(e) => match e {
-                    HuffmanError::DecodeError => unreachable!(),
-                    HuffmanError::IOError(e2) => {
-                        return Err(e2);
-                    },
+        for (idx, header) in block_headers.iter().enumerate() {
+            let mut block_coeff = [0;256];
+            let block_offset = idx * 256;
+            if header.has_coeff {
+                // read 256 coefficients from bit stream
+                let mut out_idx = 0;
+                while out_idx < 256 {
+                    let num_zeroes = match tree.read(&mut bitreader, bitstream_length) {
+                        Ok(v) => v,
+                        Err(e) => match e {
+                            HuffmanError::DecodeError => unreachable!(),
+                            HuffmanError::IOError(e2) => {
+                                return Err(e2);
+                            },
+                        }
+                    } as usize;
+
+                    out_idx += num_zeroes;
+
+                    let num_bits = match tree.read(&mut bitreader, bitstream_length) {
+                        Ok(v) => v,
+                        Err(e) => match e {
+                            HuffmanError::DecodeError => unreachable!(),
+                            HuffmanError::IOError(e2) => {
+                                return Err(e2);
+                            },
+                        }
+                    };
+
+                    // if num_bits is 0, then this is only a run of 0s with no value
+                    if num_bits > 0 {
+                        let coeff = bitreader.read_signed::<i16>(num_bits as u32)?;
+                        block_coeff[out_idx] = coeff;
+
+                        out_idx += 1;
+                    }
                 }
-            } as usize;
-
-            out_idx += num_zeroes;
-
-            let num_bits = match tree.read(&mut bitreader, bitstream_length) {
-                Ok(v) => v,
-                Err(e) => match e {
-                    HuffmanError::DecodeError => unreachable!(),
-                    HuffmanError::IOError(e2) => {
-                        return Err(e2);
-                    },
-                }
-            };
-
-            // if num_bits is 0, then this is only a run of 0s with no value
-            if num_bits > 0 {
-                let coeff = bitreader.read_signed::<i16>(num_bits as u32)?;
-                coefficients[out_idx] = coeff;
-
-                out_idx += 1;
             }
+            coefficients[block_offset..block_offset+256].copy_from_slice(&block_coeff);
         }
 
         let mut subblocks = coefficients.chunks_exact(64);
@@ -605,28 +605,20 @@ impl<TReader: Read + Seek> Decoder<TReader> {
         for _ in 0..total_blocks {
             let header = headers.next().unwrap();
 
-            let block = if header.has_coeff {
-                let s0 = subblocks.next().unwrap();
-                let s1 = subblocks.next().unwrap();
-                let s2 = subblocks.next().unwrap();
-                let s3 = subblocks.next().unwrap();
+            let s0 = subblocks.next().unwrap();
+            let s1 = subblocks.next().unwrap();
+            let s2 = subblocks.next().unwrap();
+            let s3 = subblocks.next().unwrap();
 
-                DeltaEncodedMacroBlock {
-                    motion_x: header.mvec_x,
-                    motion_y: header.mvec_y,
-                    subblocks: Some([
-                        DctQuantizedMatrix8x8::from_slice(s0),
-                        DctQuantizedMatrix8x8::from_slice(s1),
-                        DctQuantizedMatrix8x8::from_slice(s2),
-                        DctQuantizedMatrix8x8::from_slice(s3),
-                    ])
-                }
-            } else {
-                DeltaEncodedMacroBlock {
-                    motion_x: header.mvec_x,
-                    motion_y: header.mvec_y,
-                    subblocks: None
-                }
+            let block = DeltaEncodedMacroBlock {
+                motion_x: header.mvec_x,
+                motion_y: header.mvec_y,
+                subblocks: if header.has_coeff { Some([
+                    DctQuantizedMatrix8x8::from_slice(s0),
+                    DctQuantizedMatrix8x8::from_slice(s1),
+                    DctQuantizedMatrix8x8::from_slice(s2),
+                    DctQuantizedMatrix8x8::from_slice(s3),
+                ]) } else { None }
             };
 
             enc_plane.blocks.push(block);
