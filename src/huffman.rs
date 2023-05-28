@@ -58,6 +58,16 @@ impl HuffmanTree {
         HuffmanTree { codes: [Code::new();16], table: [0;16], dec_table: [Code::new();256], root: Node::new(0, None).into_box() }
     }
 
+    fn get_insert_index(node: &Box<Node>, p: &[Box<Node>]) -> usize {
+        for i in 0..p.len() {
+            if node.freq > p[i].freq {
+                return i;
+            }
+        }
+
+        return p.len();
+    }
+
     pub fn from_table(table: &[u8;16]) -> HuffmanTree {
         let mut p:Vec<Box<Node>> = Vec::new();
 
@@ -78,9 +88,7 @@ impl HuffmanTree {
             c.right = Some(b);
 
             // insertion sort new node back into list
-            let insert_pos = p.binary_search_by(|probe| {
-                c.freq.cmp(&probe.freq)
-            }).unwrap_or_else(|e| e);
+            let insert_pos = HuffmanTree::get_insert_index(&c, &p);
             p.insert(insert_pos, c);
         }
 

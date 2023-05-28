@@ -289,7 +289,7 @@ mod tests {
         let channels = decoder.channels();
 
         let mut outframe = 0;
-
+ 
         while decoder.advance_frame(&mut |frame| {
             // write video frame to file
             let frame_out_path = format!("test_frames_out_2/{:0>3}.png", outframe);
