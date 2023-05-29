@@ -13,12 +13,12 @@ Goals are to improve:
 
 ### Encoding Video
 
-Create pfv_rs::enc::Encoder, feed in frames & audio, and then write to file:
+Create pfv_rs::enc::Encoder, feed in frames, and then write results:
 
 ```rs
 use pfv_rs::enc::Encoder;
 
-let mut enc = Encoder::new(width, height, framerate, samplerate, audio_channels, quality, num_threads);
+let mut enc = Encoder::new(width, height, framerate, quality, num_threads);
 
 // feed in frames as VideoFrames (1 keyframe every 15 frames)
 for (idx, frame) in &my_frames.iter().enumerate() {
@@ -29,17 +29,14 @@ for (idx, frame) in &my_frames.iter().enumerate() {
   }
 }
 
-// append audio to be encoded (interleaved L/R samples)
-enc.append_audio(my_audio);
-
-// write file to disk
+// write PFV stream to disk
 let mut out_video = File::create("my_video.pfv").unwrap();
 enc.write(&mut out_video).unwrap();
 ```
 
 ### Decoding Video
 
-Create pfv_rs::dec::Decoder and call advance_delta every frame, passing in elapsed time since previous frame, and handling video & audio using closures:
+Create pfv_rs::dec::Decoder and call advance_delta every frame, passing in elapsed time since previous frame, and handling frames using a closure:
 
 ```rs
 use pgv_rs::dec::Decoder;
@@ -48,8 +45,6 @@ let mut dec = Decoder::new(my_file, num_threads).unwrap();
 
 while dec.advance_delta(delta_time, &mut |frame| {
     // do something with returned &VideoFrame
-}, &mut |audio| {
-    // do something with returned &[i16]
 }).unwrap() {}
 ```
 
@@ -57,9 +52,7 @@ Alternatively, you may call advance_frame to skip directly to the next frame wit
 
 Both functions will also return Ok(true) if there is more data to read in the file, or Ok(false) if the decoder has reached the end of the file.
 
-## Algorithms
-
-### Video
+## Algorithm Overview
 
 Video frame encoding is pretty standard as far as video codecs go. Frames are split into 16x16 macroblocks, which are further divided into 8x8 subblocks. Each subblock is DCT transformed & quantized to reduce the number of bits required for storage. Coefficients are further compressed using entropy coding.
 
@@ -71,6 +64,9 @@ There are three kinds of frames: drop frames, i-frames, and p-frames.
 - I-Frames just encode a full frame.
 - P-Frames encode a frame as a *delta* from the previous frame. Each macroblock has a pixel offset from the previous frame to copy from, and the macroblock may also encode the per-pixel delta from previous frame (quantized to the 0..255 range).
 
-### Audio
+## Audio
 
-Audio packets are heavily based on the [QOA](https://qoaformat.org/) audio format, due to its ease of implementation, decent audio quality vs compression ratio, and high decoding performance.
+Audio has been removed from the spec as of codec version 2.0.0
+
+You may use any audio stream format of choice with PFV video streams, whether this be embedded in some kind of container format or just shipped alongside
+the video files. For lightweight CPU requirements, [QOA](https://qoaformat.org/) is a decent choice for audio tracks.
