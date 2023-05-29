@@ -9,6 +9,8 @@ Goals are to improve:
 - Codec structure
 - (Hopefully) performance
 
+Current codec version is 2.0.0
+
 ## Usage
 
 ### Encoding Video
