@@ -7,7 +7,6 @@ mod dct;
 mod common;
 mod huffman;
 mod rle;
-mod qoa;
 
 #[cfg(test)]
 mod tests {
@@ -206,7 +205,7 @@ mod tests {
     #[test]
     fn test_encode_1() {
         let test_frame = load_frame("test1.png");
-        let mut encoder = Encoder::new(test_frame.width, test_frame.height, 30, 44100, 2, 5, 6);
+        let mut encoder = Encoder::new(test_frame.width, test_frame.height, 30, 5, 6);
         encoder.encode_iframe(&test_frame);
         encoder.encode_pframe(&test_frame);
 
@@ -228,17 +227,14 @@ mod tests {
             let frame_out_path = format!("test_frames_out/{:0>3}.png", outframe);
             save_frame(frame_out_path, frame);
             outframe += 1;
-        }, &mut |_| {}).unwrap() {}
+        }).unwrap() {}
 
         println!("Decoded {} frames", outframe);
     }
 
     #[test]
     fn test_encode_2() {
-        let mut inp_audio_file = File::open("test_audio.wav").unwrap();
-        let (audio_header, audio_data) = wav::read(&mut inp_audio_file).unwrap();
-
-        let mut encoder = Encoder::new(512, 384, 30, audio_header.sampling_rate, audio_header.channel_count as u32, 2, 6);
+        let mut encoder = Encoder::new(512, 384, 30, 2, 6);
 
         for frame_id in 1..162 {
             let frame_path = format!("test_frames/{:0>3}.png", frame_id);
@@ -253,28 +249,6 @@ mod tests {
             println!("Encoded: {} / {}", frame_id, 162);
         }
 
-        let audio_data: Vec<i16> = match audio_data {
-            wav::BitDepth::Eight(v) => {
-                v.iter().map(|x| {
-                    let f = (*x as f32 / 128.0) - 1.0;
-                    (f * 32768.0) as i16
-                }).collect()
-            }
-            wav::BitDepth::Sixteen(v) => {
-                v
-            }
-            wav::BitDepth::ThirtyTwoFloat(v) => {
-                v.iter().map(|x| {
-                    (*x * 32768.0) as i16
-                }).collect()
-            }
-            _ => {
-                panic!("Not implemented")
-            }
-        };
-
-        encoder.append_audio(&audio_data);
-
         let mut outfile = File::create("test2.pfv").unwrap();
         encoder.write(&mut outfile).unwrap();
 
@@ -286,8 +260,6 @@ mod tests {
         let infile = File::open("test2.pfv").unwrap();
         let mut decoder = Decoder::new(infile, 6).unwrap();
 
-        let channels = decoder.channels();
-
         let mut outframe = 0;
  
         while decoder.advance_frame(&mut |frame| {
@@ -296,8 +268,6 @@ mod tests {
             save_frame(frame_out_path, frame);
             outframe += 1;
             println!("Decoded {}", outframe);
-        }, &mut |audio| {
-            println!("Decoded audio ({} samples)", audio.len() / channels as usize);
         }).unwrap() {}
     }
 
@@ -321,7 +291,7 @@ mod tests {
             while decoder.advance_frame(&mut |frame| {
                 outframe += 1;
                 black_box(frame);
-            }, &mut |_| {}).unwrap() {}
+            }).unwrap() {}
 
             let duration = start.elapsed().as_millis();
             println!("Decoded {} frames in {} ms", outframe, duration);

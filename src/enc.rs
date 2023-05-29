@@ -7,47 +7,36 @@ use crate::common::{EncodedFrame, EncodedIFrame, PFV_MAGIC, PFV_VERSION, Encoded
 use crate::frame::VideoFrame;
 use crate::dct::{Q_TABLE_INTER, Q_TABLE_INTRA};
 use crate::plane::VideoPlane;
-use crate::qoa::{LMS, EncodedAudioFrame, QOA_SLICE_LEN, QOA_LMS_LEN, QOA_DEQUANT_TABLE, qoa_lms_predict, qoa_div, QOA_QUANT_TABLE, QOA_FRAME_LEN};
 use crate::rle::{rle_encode, rle_create_huffman, update_table};
 
 pub struct Encoder {
     width: usize,
     height: usize,
     framerate: u32,
-    samplerate: u32,
-    channels: u32,
     prev_frame: VideoFrame,
     px_err: f32,
     qtable_inter: [f32;64],
     qtable_intra: [f32;64],
     frames: Vec<EncodedFrame>,
-    audio_buf: Vec<Vec<i16>>,
     #[cfg(feature = "multithreading")]
     threadpool: rayon::ThreadPool
 }
 
 impl Encoder {
-    pub fn new(width: usize, height: usize, framerate: u32, samplerate: u32, channels: u32, quality: i32, #[cfg(feature = "multithreading")] num_threads: usize) -> Encoder {
+    pub fn new(width: usize, height: usize, framerate: u32, quality: i32, #[cfg(feature = "multithreading")] num_threads: usize) -> Encoder {
         assert!(quality >= 0 && quality <= 10);
 
         let qscale = quality as f32 * 0.25;
         let px_err = quality as f32 * 1.5;
 
-        let mut audio_buf = Vec::new();
-
-        for _ in 0..channels {
-            audio_buf.push(Vec::new());
-        }
-
         #[cfg(feature = "multithreading")]
         {
-            Encoder { width: width, height: height, framerate: framerate, samplerate: samplerate, channels: channels,
+            Encoder { width: width, height: height, framerate: framerate,
                 prev_frame: VideoFrame::new_padded(width, height),
                 px_err: px_err,
                 qtable_inter: Q_TABLE_INTER.map(|x| (x * qscale).max(1.0)),
                 qtable_intra: Q_TABLE_INTRA.map(|x| (x * qscale).max(1.0)),
                 frames: Vec::new(),
-                audio_buf: audio_buf,
                 threadpool: rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap() }
         }
 
@@ -58,21 +47,7 @@ impl Encoder {
                 px_err: px_err,
                 qtable_inter: Q_TABLE_INTER.map(|x| (x * qscale).max(1.0)),
                 qtable_intra: Q_TABLE_INTRA.map(|x| (x * qscale).max(1.0)),
-                frames: Vec::new(),
-                audio_buf: audio_buf }
-        }
-    }
-
-    pub fn append_audio(self: &mut Encoder, audio: &[i16]) {
-        for ch in &mut self.audio_buf {
-            ch.reserve(audio.len() / self.channels as usize);
-        }
-
-        // split interleaved audio data into one buffer per channel
-        for sample in audio.chunks_exact(self.channels as usize) {
-            for ch in 0..self.channels as usize {
-                self.audio_buf[ch].push(sample[ch]);
-            }
+                frames: Vec::new(), }
         }
     }
 
@@ -175,9 +150,6 @@ impl Encoder {
         writer.write_u16::<LittleEndian>(self.height as u16)?;
         writer.write_u16::<LittleEndian>(self.framerate as u16)?;
 
-        writer.write_u16::<LittleEndian>(self.samplerate as u16)?;
-        writer.write_u16::<LittleEndian>(self.channels as u16)?;
-
         // write q-tables
         writer.write_u16::<LittleEndian>(2)?;
 
@@ -191,13 +163,6 @@ impl Encoder {
 
         // write packets to file (interleave A/V packets)
 
-        // 250ms audio buffer size (at 44.1khz this means each returned audio chunk will contain 11025 samples)
-        let buffer_size = (self.samplerate / 4) as f32;
-
-        // start with some samples already accumulated to mitigate buffering delays during playback
-        let samples_per_frame = self.samplerate as f32 / self.framerate as f32;
-        let mut sample_accum = buffer_size * 2.0;
-
         for f in &self.frames {
             match f {
                 EncodedFrame::IFrame(v) => {
@@ -210,175 +175,9 @@ impl Encoder {
                     Encoder::write_drop_packet(writer)?;
                 }
             }
-
-            if self.audio_buf.len() > 0 {
-                sample_accum += samples_per_frame;
-
-                while sample_accum >= buffer_size {
-                    let samples_to_write = (buffer_size as usize).min(self.audio_buf[0].len());
-                    if samples_to_write > 0 {
-                        let mut samples: Vec<Vec<i16>> = Vec::new();
-                        for buf in &mut self.audio_buf {
-                            samples.push(buf.drain(0..samples_to_write).collect());
-                        }
-                        Encoder::write_audio_packet(&samples, writer)?;
-                    }
-                    sample_accum -= buffer_size;
-                }
-            }
         }
 
         Encoder::write_eof(writer)?;
-
-        Ok(())
-    }
-
-    // adapted from https://github.com/mattdesl/qoa-format/blob/main/encode.js
-
-    fn encode_audio_frame(audio: &Vec<Vec<i16>>, lmses: &mut Vec<LMS>, sample_offset: usize, frame_len: usize) -> EncodedAudioFrame {
-        let mut result = EncodedAudioFrame {
-            samples: frame_len as usize,
-            slices: Vec::new(),
-            lmses: lmses.clone(),
-        };
-
-        let mut sample_index = 0;
-        while sample_index < frame_len {
-            for c in 0..audio.len() {
-                let slice_start = sample_index;
-                let slice_len = QOA_SLICE_LEN.clamp(0, frame_len - sample_index);
-
-                // brute force search for best scale factor (just loop through all possible scale factors and compare error)
-
-                let mut best_err = i64::MAX as i64;
-                let mut best_slice = Vec::new();
-                let mut best_slice_scalefactor = 0;
-                let mut best_lms = LMS { history: [0;QOA_LMS_LEN], weight: [0;QOA_LMS_LEN] };
-                let sampledata = &audio[c];
-
-                for scalefactor in 0..16 {
-                    let mut lms = lmses[c];
-                    let table = QOA_DEQUANT_TABLE[scalefactor];
-
-                    let mut slice = Vec::new();
-                    let mut current_error = 0;
-                    let mut idx = slice_start + sample_offset;
-
-                    for _ in 0..slice_len {
-                        let sample = sampledata[idx] as i32;
-                        idx += 1;
-
-                        let predicted = qoa_lms_predict(lms);
-                        let residual = sample - predicted;
-                        let scaled = qoa_div(residual, scalefactor);
-                        let clamped = scaled.clamp(-8, 8);
-                        let quantized = QOA_QUANT_TABLE[(clamped + 8) as usize];
-                        let dequantized = table[quantized as usize];
-                        let reconstructed = (predicted + dequantized).clamp(i16::MIN as i32, i16::MAX as i32);
-                        let error = (sample - reconstructed) as i64;
-                        current_error += error * error;
-                        if current_error > best_err {
-                            break;
-                        }
-
-                        lms.update(reconstructed, dequantized);
-                        slice.push(quantized);
-                    }
-
-                    if current_error < best_err {
-                        best_err = current_error;
-                        best_slice = slice;
-                        best_slice_scalefactor = scalefactor;
-                        best_lms = lms;
-                    }
-                }
-
-                // if best_err is i64::MAX, that implies that *no* suitable scalefactor could be found
-                // something has gone wrong here
-                assert!(best_err < i64::MAX);
-
-                lmses[c] = best_lms;
-
-                // pack bits into slice - low 4 bits are scale factor, remaining 60 bits are quantized residuals
-                let mut slice = (best_slice_scalefactor & 0xF) as u64;
-
-                for i in 0..best_slice.len() {
-                    let v = best_slice[i] as u64;
-                    slice |= ((v & 0x7) << ((i * 3) + 4)) as u64;
-                }
-
-                result.slices.push(slice);
-            }
-
-            sample_index += QOA_SLICE_LEN;
-        }
-
-        result
-    }
-
-    fn write_audio_packet<W: Write>(audio: &Vec<Vec<i16>>, writer: &mut W) -> Result<(), std::io::Error> {
-        // write audio data to temporary buffer
-        let mut payload = Cursor::new(Vec::new());
-
-        let samples = audio[0].len();
-
-        assert!(samples < 65536);
-
-        for a in audio {
-            assert!(a.len() == samples);
-        }
-
-        // init LMS
-        let mut lmses: Vec<LMS> = audio.iter().map(|_| {
-            LMS {
-                weight: [0, 0, -(1 << 13), 1 << 14],
-                history: [0, 0, 0, 0]
-            }
-        }).collect();
-
-        let mut frames = Vec::new();
-
-        let mut sample_index = 0;
-        while sample_index < samples {
-            let frame_len = QOA_FRAME_LEN.clamp(0, samples - sample_index);
-            frames.push(Encoder::encode_audio_frame(&audio, &mut lmses, sample_index, frame_len));
-            sample_index += QOA_FRAME_LEN;
-        }
-
-        // write total samples in audio packet
-        payload.write_u16::<LittleEndian>(samples as u16)?;
-
-        // for each encoded frame:
-        //  write number of samples per channel in frame
-        //  write total slice count in frame
-        //  write LMS history & weights for each channel
-        //  write each slice in frame
-
-        for frame in &frames {
-            payload.write_u16::<LittleEndian>(frame.samples as u16)?;
-            payload.write_u16::<LittleEndian>(frame.slices.len() as u16)?;
-
-            for lms in &frame.lmses {
-                for history in lms.history {
-                    payload.write_i16::<LittleEndian>(history as i16)?;
-                }
-
-                for weight in lms.weight {
-                    payload.write_i16::<LittleEndian>(weight as i16)?;
-                }
-            }
-
-            for slice in &frame.slices {
-                payload.write_u64::<LittleEndian>(*slice)?;
-            }
-        }
-
-        let packet_data = payload.into_inner();
-
-        // write packet header + data
-        writer.write_u8(3)?; // packet type = audio
-        writer.write_u32::<LittleEndian>(packet_data.len() as u32)?;
-        writer.write_all(&packet_data)?;
 
         Ok(())
     }

@@ -1,5 +1,5 @@
 pub const PFV_MAGIC: &[u8] = b"PFVIDEO\0";
-pub const PFV_VERSION: u32 = 102;
+pub const PFV_VERSION: u32 = 200;
 
 use crate::{dct::{DctQuantizedMatrix8x8, DctMatrix8x8}, plane::VideoPlane};
 
