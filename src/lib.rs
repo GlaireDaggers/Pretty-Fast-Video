@@ -240,7 +240,7 @@ mod tests {
             let frame_path = format!("test_frames/{:0>3}.png", frame_id);
             let frame = load_frame(frame_path);
 
-            if (frame_id - 1) % 16 == 0 {
+            if (frame_id - 1) % 60 == 0 {
                 encoder.encode_iframe(&frame);
             } else {
                 encoder.encode_pframe(&frame);

@@ -16,7 +16,8 @@ pub struct Encoder {
     prev_frame: VideoFrame,
     px_err: f32,
     qtable_inter: [f32;64],
-    qtable_intra: [f32;64],
+    qtable_intra_l: [f32;64],
+    qtable_intra_c: [f32;64],
     frames: Vec<EncodedFrame>,
     #[cfg(feature = "multithreading")]
     threadpool: rayon::ThreadPool
@@ -35,7 +36,8 @@ impl Encoder {
                 prev_frame: VideoFrame::new_padded(width, height),
                 px_err: px_err,
                 qtable_inter: Q_TABLE_INTER.map(|x| (x * qscale).max(1.0)),
-                qtable_intra: Q_TABLE_INTRA.map(|x| (x * qscale).max(1.0)),
+                qtable_intra_l: Q_TABLE_INTRA.map(|x| (x * qscale * 0.25).max(1.0)),
+                qtable_intra_c: Q_TABLE_INTRA.map(|x| (x * qscale * 0.5).max(1.0)),
                 frames: Vec::new(),
                 threadpool: rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap() }
         }
@@ -59,14 +61,14 @@ impl Encoder {
 
         #[cfg(feature = "multithreading")]
         {
-            let enc_y = frame.plane_y.encode_plane(&self.qtable_intra, 0, &self.threadpool);
-            let dec_y = VideoPlane::decode_plane(&enc_y, &self.qtable_intra, &self.threadpool);
+            let enc_y = frame.plane_y.encode_plane(&self.qtable_intra_l, 0, &self.threadpool);
+            let dec_y = VideoPlane::decode_plane(&enc_y, &self.qtable_intra_l, &self.threadpool);
 
-            let enc_u = frame.plane_u.encode_plane(&self.qtable_intra, 128, &self.threadpool);
-            let dec_u = VideoPlane::decode_plane(&enc_u, &self.qtable_intra, &self.threadpool);
+            let enc_u = frame.plane_u.encode_plane(&self.qtable_intra_c, 128, &self.threadpool);
+            let dec_u = VideoPlane::decode_plane(&enc_u, &self.qtable_intra_c, &self.threadpool);
 
-            let enc_v = frame.plane_v.encode_plane(&self.qtable_intra, 128, &self.threadpool);
-            let dec_v = VideoPlane::decode_plane(&enc_v, &self.qtable_intra, &self.threadpool);
+            let enc_v = frame.plane_v.encode_plane(&self.qtable_intra_c, 128, &self.threadpool);
+            let dec_v = VideoPlane::decode_plane(&enc_v, &self.qtable_intra_c, &self.threadpool);
 
             self.frames.push(EncodedFrame::IFrame(EncodedIFrame { y: enc_y, u: enc_u, v: enc_v } ));
 
@@ -151,9 +153,13 @@ impl Encoder {
         writer.write_u16::<LittleEndian>(self.framerate as u16)?;
 
         // write q-tables
-        writer.write_u16::<LittleEndian>(2)?;
+        writer.write_u16::<LittleEndian>(3)?;
 
-        for v in self.qtable_intra {
+        for v in self.qtable_intra_l {
+            writer.write_u16::<LittleEndian>(v as u16)?;
+        }
+
+        for v in self.qtable_intra_c {
             writer.write_u16::<LittleEndian>(v as u16)?;
         }
 
@@ -255,11 +261,11 @@ impl Encoder {
             bitwriter.write(8, tree_table[i] as u8)?;
         }
 
-        // we currently only create two qtables: one for i-frames (0) and one for p-frames (1)
+        // we currently create three qtables: two for i-frames (0, 1) and one for p-frames (2)
         // note: (one qtable index per plane)
         bitwriter.write(8, 0_u8)?;
-        bitwriter.write(8, 0_u8)?;
-        bitwriter.write(8, 0_u8)?;
+        bitwriter.write(8, 1_u8)?;
+        bitwriter.write(8, 1_u8)?;
 
         // serialize blocks to bitstream
         for block in &block_coeff {
@@ -368,11 +374,11 @@ impl Encoder {
             bitwriter.write(8, tree_table[i] as u8)?;
         }
 
-        // we currently only create two qtables: one for i-frames (0) and one for p-frames (1)
+        // we currently create three qtables: two for i-frames (0, 1) and one for p-frames (2)
         // note: (one qtable index per plane)
-        bitwriter.write(8, 1_u8)?;
-        bitwriter.write(8, 1_u8)?;
-        bitwriter.write(8, 1_u8)?;
+        bitwriter.write(8, 2_u8)?;
+        bitwriter.write(8, 2_u8)?;
+        bitwriter.write(8, 2_u8)?;
 
         // write block headers
         for b in &f.y.blocks {

@@ -56,6 +56,36 @@ pub struct EncodedPPlane {
     pub blocks: Vec<DeltaEncodedMacroBlock>,
 }
 
+pub struct DeltaBlock {
+    pub width: usize,
+    pub height: usize,
+    pub deltas: Vec<i16>,
+}
+
+impl DeltaBlock {
+    pub fn new(width: usize, height: usize) -> DeltaBlock {
+        DeltaBlock { width: width, height: height, deltas: vec![0;width * height] }
+    }
+
+    pub fn blit(self: &mut DeltaBlock, src: &DeltaBlock, dx: usize, dy: usize, sx: usize, sy: usize, sw: usize, sh: usize) {
+        for row in 0..sh {
+            let src_row = row + sy;
+            let dest_row = row + dy;
+            let src_offset = (src_row * src.width) + sx;
+            let dst_offset = (dest_row * self.width) + dx;
+
+            self.deltas[dst_offset..(dst_offset + sw)].copy_from_slice(&src.deltas[src_offset..(src_offset + sw)]);
+        }
+    }
+
+    pub fn get_slice(self: &DeltaBlock, sx: usize, sy: usize, sw: usize, sh: usize) -> DeltaBlock {
+        let mut new_slice = DeltaBlock::new(sw, sh);
+        new_slice.blit(self, 0, 0, sx, sy, sw, sh);
+
+        new_slice
+    }
+}
+
 impl MacroBlock {
     pub fn new() -> MacroBlock {
         MacroBlock { pixels: [0;256] }
@@ -81,15 +111,18 @@ impl MacroBlock {
 }
 
 impl VideoPlane {
-    fn calc_residuals(from: &VideoPlane, to: &VideoPlane) -> VideoPlane {
+    fn calc_residuals(from: &VideoPlane, to: &VideoPlane) -> DeltaBlock {
         debug_assert!(from.width == to.width && from.height == to.height);
 
-        let mut residuals = VideoPlane::new(from.width, from.height);
-        residuals.pixels.copy_from_slice(&from.pixels);
+        let mut residuals = DeltaBlock::new(from.width, from.height);
+        
+        for (f, t) in residuals.deltas.iter_mut().zip(&from.pixels) {
+            *f = *t as i16;
+        }
 
-        for (f, t) in residuals.pixels.iter_mut().zip(&to.pixels) {
+        for (f, t) in residuals.deltas.iter_mut().zip(&to.pixels) {
             let delta = *f as i16 - *t as i16;
-            *f = ((delta / 2) + 128).clamp(0, 255) as u8;
+            *f = delta.clamp(-255, 255);
         }
 
         residuals
@@ -130,13 +163,27 @@ impl VideoPlane {
         let mut best_err = f32::INFINITY;
         let mut best_slice = VideoPlane::new(16, 16);
 
+        // test center point first
+        {
+            let slice = refplane.get_slice(cx as usize, cy as usize, 16, 16);
+            best_slice.pixels.copy_from_slice(&slice.pixels);
+            best_err = VideoPlane::calc_error(src, &slice, best_err);
+        }
+
         // search 8 locations around center point at multiples of step size
         for my in -1..2 {
+
             let offsy = cy + (my * stepsize);
             if offsy < 0 || offsy > refplane.height as i32 - 16 {
                 continue;
             }
+
             for mx in -1..2 {
+                if my == 0 && mx == 0 {
+                    // we already tested (0, 0) - skip
+                    continue;
+                }
+
                 let offsx = cx + (mx * stepsize);
                 if offsx < 0 || offsx > refplane.width as i32 - 16 {
                     continue;
@@ -185,10 +232,10 @@ impl VideoPlane {
 
             // split into 4 subblocks and encode each one
             let subblocks = [
-                VideoPlane::encode_subblock(&delta_block.get_slice(0, 0, 8, 8), q_table),
-                VideoPlane::encode_subblock(&delta_block.get_slice(8, 0, 8, 8), q_table),
-                VideoPlane::encode_subblock(&delta_block.get_slice(0, 8, 8, 8), q_table),
-                VideoPlane::encode_subblock(&delta_block.get_slice(8, 8, 8, 8), q_table)];
+                VideoPlane::encode_subblock_delta(&delta_block.get_slice(0, 0, 8, 8), q_table),
+                VideoPlane::encode_subblock_delta(&delta_block.get_slice(8, 0, 8, 8), q_table),
+                VideoPlane::encode_subblock_delta(&delta_block.get_slice(0, 8, 8, 8), q_table),
+                VideoPlane::encode_subblock_delta(&delta_block.get_slice(8, 8, 8, 8), q_table)];
 
             DeltaEncodedMacroBlock { motion_x: best_dx as i8, motion_y: best_dy as i8, subblocks: Some(subblocks) }
         }
@@ -248,6 +295,19 @@ impl VideoPlane {
 
         let mut dct = DctMatrix8x8::new();
         let cell_px: Vec<f32> = src.pixels.iter().map(|x| (*x as f32) - 128.0).collect();
+        dct.m.copy_from_slice(&cell_px);
+
+        dct.dct_transform_rows();
+        dct.dct_transform_columns();
+
+        dct.encode(q_table)
+    }
+
+    fn encode_subblock_delta(src: &DeltaBlock, q_table: &[f32;64]) -> DctQuantizedMatrix8x8 {
+        assert!(src.width == 8 && src.height == 8);
+
+        let mut dct = DctMatrix8x8::new();
+        let cell_px: Vec<f32> = src.deltas.iter().map(|x| (*x as f32) * 0.5).collect();
         dct.m.copy_from_slice(&cell_px);
 
         dct.dct_transform_rows();
