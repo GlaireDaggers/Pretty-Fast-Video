@@ -205,12 +205,12 @@ mod tests {
     #[test]
     fn test_encode_1() {
         let test_frame = load_frame("test1.png");
-        let mut encoder = Encoder::new(test_frame.width, test_frame.height, 30, 5, 6);
-        encoder.encode_iframe(&test_frame);
-        encoder.encode_pframe(&test_frame);
-
-        let mut outfile = File::create("test.pfv").unwrap();
-        encoder.write(&mut outfile).unwrap();
+        let outfile = File::create("test.pfv").unwrap();
+        let mut encoder = Encoder::new(outfile, test_frame.width, test_frame.height, 30, 5, 6).unwrap();
+        
+        encoder.encode_iframe(&test_frame).unwrap();
+        encoder.encode_pframe(&test_frame).unwrap();
+        encoder.finish().unwrap();
 
         println!("File written");
     }
@@ -234,23 +234,23 @@ mod tests {
 
     #[test]
     fn test_encode_2() {
-        let mut encoder = Encoder::new(512, 384, 30, 2, 6);
+        let outfile = File::create("test2.pfv").unwrap();
+        let mut encoder = Encoder::new(outfile, 512, 384, 30, 2, 6).unwrap();
 
         for frame_id in 1..162 {
             let frame_path = format!("test_frames/{:0>3}.png", frame_id);
             let frame = load_frame(frame_path);
 
             if (frame_id - 1) % 60 == 0 {
-                encoder.encode_iframe(&frame);
+                encoder.encode_iframe(&frame).unwrap();
             } else {
-                encoder.encode_pframe(&frame);
+                encoder.encode_pframe(&frame).unwrap();
             }
 
             println!("Encoded: {} / {}", frame_id, 162);
         }
 
-        let mut outfile = File::create("test2.pfv").unwrap();
-        encoder.write(&mut outfile).unwrap();
+        encoder.finish().unwrap();
 
         println!("File written");
     }

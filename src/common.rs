@@ -22,12 +22,6 @@ pub struct MacroBlock {
     pub pixels: [u8;256]
 }
 
-pub enum EncodedFrame {
-    IFrame (EncodedIFrame),
-    PFrame (EncodedPFrame),
-    DropFrame,
-}
-
 pub struct EncodedIFrame {
     pub y: EncodedIPlane,
     pub u: EncodedIPlane,
