@@ -20,20 +20,20 @@ Create pfv_rs::enc::Encoder, feed in frames, and then write results:
 ```rs
 use pfv_rs::enc::Encoder;
 
-let mut enc = Encoder::new(width, height, framerate, quality, num_threads);
+let out_video = File::create("my_video.pfv").unwrap();
+let mut enc = Encoder::new(out_video, width, height, framerate, quality, num_threads).unwrap();
 
 // feed in frames as VideoFrames (1 keyframe every 15 frames)
 for (idx, frame) in &my_frames.iter().enumerate() {
   if idx % 15 == 0 {
-    enc.encode_iframe(frame);
+    enc.encode_iframe(frame).unwrap();
   } else {
-    enc.encode_pframe(frame);
+    enc.encode_pframe(frame).unwrap();
   }
 }
 
-// write PFV stream to disk
-let mut out_video = File::create("my_video.pfv").unwrap();
-enc.write(&mut out_video).unwrap();
+// finish PFV stream (will also be automatically called if encoder is dropped)
+enc.finish().unwrap();
 ```
 
 ### Decoding Video
