@@ -1,6 +1,6 @@
 ## Pretty Fast Video
 
-Toy video codec designed as a successor to [Pretty Good Video](https://github.com/GlaireDaggers/Pretty-Good-Video)
+Minimal video codec designed as a successor to [Pretty Good Video](https://github.com/GlaireDaggers/Pretty-Good-Video)
 
 Goals are to improve:
 
