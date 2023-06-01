@@ -20,7 +20,7 @@ mod tests {
 
     #[test]
     fn test_dct() {
-        let data: [f32;8] = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0];
+        let data: [i32;8] = [0 << 8, 10 << 8, 20 << 8, 30 << 8, 40 << 8, 50 << 8, 60 << 8, 70 << 8];
 
         let mut dct = data;
         DctMatrix8x8::fast_dct8_transform(&mut dct);
@@ -30,29 +30,48 @@ mod tests {
         let mut out = dct;
         DctMatrix8x8::fast_dct8_inverse_transform(&mut out);
 
+        for i in 0..8 {
+            out[i] >>= 8;
+        }
+
         println!("Output: {:?}", out);
     }
 
     #[test]
     fn test_dct_encode() {
+        // this is a particular test case which proved problematic during the switch to fixed-point math due to integer overflow
+
+        let qtable = [5, 10, 11, 13, 16, 16, 18, 21, 10, 10, 13, 15, 16, 18, 21, 23, 11, 13, 16, 16, 18, 21, 21, 23, 13, 13, 16, 16, 18, 21, 23, 25, 13, 16, 16, 18, 20, 21, 25, 30, 
+16, 16, 18, 20, 21, 25, 30, 36, 16, 16, 18, 21, 23, 28, 35, 43, 16, 18, 21, 23, 28, 35, 43, 51];
+
         let mut dct = DctMatrix8x8::new();
 
-        for i in 0..64 {
-            dct.m[i] = (i * 4) as f32 - 128.0;
-        }
+        dct.m = [44, 42, 43, 43, 46, 49, 42, 33, 36, 49, 56, 47, 42, 41, 36, 28, 36, 48, 57, 52, 42, 35, 29, 23, 36, 35, 41, 48, 45, 32, 25, 24, 32, 27, 30, 39, 41, 32, 25, 26, 26, 27, 29, 30, 31, 31, 27, 23, 29, 27, 27, 27, 30, 31, 26, 20, 35, 23, 19, 27, 34, 30, 22, 16];
 
         println!("Input: {:?}", dct);
+
+        for i in 0..64 {
+            dct.m[i] = (dct.m[i] - 128) << 8;
+        }
 
         dct.dct_transform_rows();
         dct.dct_transform_columns();
 
-        let qdct = dct.encode(&Q_TABLE_INTRA);
+        println!("Before quant: {:?}", dct.m);
+
+        let qdct = dct.encode(&qtable);
         println!("Quantized: {:?}", qdct);
 
-        let mut dct2 = DctMatrix8x8::decode(&qdct, &Q_TABLE_INTRA);
+        let mut dct2 = DctMatrix8x8::decode(&qdct, &qtable);
+
+        println!("After quant: {:?}", dct2.m);
 
         dct2.dct_inverse_transform_columns();
         dct2.dct_inverse_transform_rows();
+
+        for i in 0..64 {
+            dct2.m[i] = (dct2.m[i] >> 8) + 128;
+        }
 
         println!("Output: {:?}", dct2);
     }

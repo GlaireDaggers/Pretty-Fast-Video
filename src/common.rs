@@ -1,7 +1,7 @@
 pub const PFV_MAGIC: &[u8] = b"PFVIDEO\0";
-pub const PFV_VERSION: u32 = 200;
+pub const PFV_VERSION: u32 = 201;
 
-use crate::{dct::{DctQuantizedMatrix8x8, DctMatrix8x8}, plane::VideoPlane};
+use crate::{dct::{DctQuantizedMatrix8x8, DctMatrix8x8, FP_BITS}, plane::VideoPlane};
 
 #[cfg(feature = "multithreading")]
 use rayon::prelude::*;
@@ -138,7 +138,7 @@ impl VideoPlane {
         return sum;
     }
 
-    fn encode_block(src: &VideoPlane, q_table: &[f32;64]) -> EncodedMacroBlock {
+    fn encode_block(src: &VideoPlane, q_table: &[i32;64]) -> EncodedMacroBlock {
         debug_assert!(src.width == 16 && src.height == 16);
 
         // split into 4 subblocks and encode each one
@@ -203,7 +203,7 @@ impl VideoPlane {
         }
     }
 
-    fn encode_block_delta(src: &VideoPlane, refplane: &VideoPlane, bx: usize, by: usize, q_table: &[f32;64], px_err: f32) -> DeltaEncodedMacroBlock {
+    fn encode_block_delta(src: &VideoPlane, refplane: &VideoPlane, bx: usize, by: usize, q_table: &[i32;64], px_err: f32) -> DeltaEncodedMacroBlock {
         debug_assert!(src.width == 16 && src.height == 16);
 
         let min_err = px_err * px_err * 256.0;
@@ -235,7 +235,7 @@ impl VideoPlane {
         }
     }
     
-    fn decode_block(src: &EncodedMacroBlock, q_table: &[f32;64]) -> MacroBlock {
+    fn decode_block(src: &EncodedMacroBlock, q_table: &[i32;64]) -> MacroBlock {
         let subblocks = [
             VideoPlane::decode_subblock(&src.subblocks[0], q_table),
             VideoPlane::decode_subblock(&src.subblocks[1], q_table),
@@ -251,7 +251,7 @@ impl VideoPlane {
         block
     }
 
-    fn decode_block_delta(src: &DeltaEncodedMacroBlock, refplane: &VideoPlane, bx: usize, by: usize, q_table: &[f32;64]) -> MacroBlock {
+    fn decode_block_delta(src: &DeltaEncodedMacroBlock, refplane: &VideoPlane, bx: usize, by: usize, q_table: &[i32;64]) -> MacroBlock {
         let sx = bx as i32 + src.motion_x as i32;
         let sy = by as i32 + src.motion_y as i32;
 
@@ -284,11 +284,11 @@ impl VideoPlane {
         };
     }
 
-    fn encode_subblock(src: &VideoPlane, q_table: &[f32;64]) -> DctQuantizedMatrix8x8 {
+    fn encode_subblock(src: &VideoPlane, q_table: &[i32;64]) -> DctQuantizedMatrix8x8 {
         assert!(src.width == 8 && src.height == 8);
 
         let mut dct = DctMatrix8x8::new();
-        let cell_px: Vec<f32> = src.pixels.iter().map(|x| (*x as f32) - 128.0).collect();
+        let cell_px: Vec<i32> = src.pixels.iter().map(|x| ((*x as i32) - 128) << FP_BITS).collect();
         dct.m.copy_from_slice(&cell_px);
 
         dct.dct_transform_rows();
@@ -297,11 +297,11 @@ impl VideoPlane {
         dct.encode(q_table)
     }
 
-    fn encode_subblock_delta(src: &DeltaBlock, q_table: &[f32;64]) -> DctQuantizedMatrix8x8 {
+    fn encode_subblock_delta(src: &DeltaBlock, q_table: &[i32;64]) -> DctQuantizedMatrix8x8 {
         assert!(src.width == 8 && src.height == 8);
 
         let mut dct = DctMatrix8x8::new();
-        let cell_px: Vec<f32> = src.deltas.iter().map(|x| (*x as f32) * 0.5).collect();
+        let cell_px: Vec<i32> = src.deltas.iter().map(|x| ((*x as i32) >> 1) << FP_BITS).collect();
         dct.m.copy_from_slice(&cell_px);
 
         dct.dct_transform_rows();
@@ -310,7 +310,7 @@ impl VideoPlane {
         dct.encode(q_table)
     }
 
-    fn decode_subblock(src: &DctQuantizedMatrix8x8, q_table: &[f32;64]) -> [u8;64] {
+    fn decode_subblock(src: &DctQuantizedMatrix8x8, q_table: &[i32;64]) -> [u8;64] {
         let mut dct = DctMatrix8x8::decode(src, q_table);
         dct.dct_inverse_transform_columns();
         dct.dct_inverse_transform_rows();
@@ -318,7 +318,7 @@ impl VideoPlane {
         let mut result = [0;64];
         
         for (idx, px) in dct.m.iter().enumerate() {
-            result[idx] = (*px + 128.0) as u8;
+            result[idx] = ((*px >> FP_BITS) + 128).clamp(0, 255) as u8;
         }
 
         result
@@ -355,12 +355,12 @@ impl VideoPlane {
             let dst_offset = (dest_row * self.width) + dx;
 
             for column in 0..8 {
-                self.pixels[dst_offset + column] = (block.m[src_offset + column] + 128.0) as u8;
+                self.pixels[dst_offset + column] = ((block.m[src_offset + column] >> FP_BITS) + 128).clamp(0, 255) as u8;
             }
         }
     }
 
-    pub fn encode_plane(self: &VideoPlane, q_table: &[f32;64], clear_color: u8, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> EncodedIPlane {
+    pub fn encode_plane(self: &VideoPlane, q_table: &[i32;64], clear_color: u8, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> EncodedIPlane {
         let pad_width: usize = self.width + (16 - (self.width % 16)) % 16;
         let pad_height = self.height + (16 - (self.height % 16)) % 16;
         let mut img_copy = VideoPlane::new(pad_width, pad_height);
@@ -397,7 +397,7 @@ impl VideoPlane {
         EncodedIPlane { width: pad_width, height: pad_height, blocks_wide: blocks_wide, blocks_high: blocks_high, blocks: enc_result }
     }
 
-    pub fn encode_plane_delta(self: &VideoPlane, refplane: &VideoPlane, q_table: &[f32;64], px_err: f32, clear_color: u8, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> EncodedPPlane {
+    pub fn encode_plane_delta(self: &VideoPlane, refplane: &VideoPlane, q_table: &[i32;64], px_err: f32, clear_color: u8, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> EncodedPPlane {
         let pad_width: usize = self.width + (16 - (self.width % 16)) % 16;
         let pad_height = self.height + (16 - (self.height % 16)) % 16;
         let mut img_copy = VideoPlane::new(pad_width, pad_height);
@@ -432,7 +432,7 @@ impl VideoPlane {
         EncodedPPlane { width: pad_width, height: pad_height, blocks_wide: blocks_wide, blocks_high: blocks_high, blocks: enc_result }
     }
 
-    pub fn decode_plane(src: &EncodedIPlane, q_table: &[f32;64], #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> VideoPlane {
+    pub fn decode_plane(src: &EncodedIPlane, q_table: &[i32;64], #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> VideoPlane {
         let mut plane = VideoPlane::new(src.blocks_wide * 16, src.blocks_high * 16);
 
         let total_blocks = src.blocks_wide * src.blocks_high;
@@ -457,7 +457,7 @@ impl VideoPlane {
         plane
     }
 
-    pub fn decode_plane_delta(src: &EncodedPPlane, refplane: &VideoPlane, q_table: &[f32;64], #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> VideoPlane {
+    pub fn decode_plane_delta(src: &EncodedPPlane, refplane: &VideoPlane, q_table: &[i32;64], #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) -> VideoPlane {
         let mut plane = VideoPlane::new(src.blocks_wide * 16, src.blocks_high * 16);
 
         let total_blocks = src.blocks_wide * src.blocks_high;
@@ -486,7 +486,7 @@ impl VideoPlane {
         plane
     }
 
-    pub fn decode_plane_into(src: &EncodedIPlane, q_table: &[f32;64], target: &mut VideoPlane, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
+    pub fn decode_plane_into(src: &EncodedIPlane, q_table: &[i32;64], target: &mut VideoPlane, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
         let total_blocks = src.blocks_wide * src.blocks_high;
 
         #[cfg(feature = "multithreading")]
@@ -507,7 +507,7 @@ impl VideoPlane {
         }
     }
 
-    pub fn decode_plane_delta_into(src: &EncodedPPlane, refplane: &mut VideoPlane, q_table: &[f32;64], #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
+    pub fn decode_plane_delta_into(src: &EncodedPPlane, refplane: &mut VideoPlane, q_table: &[i32;64], #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
         let total_blocks = src.blocks_wide * src.blocks_high;
 
         #[cfg(feature = "multithreading")]

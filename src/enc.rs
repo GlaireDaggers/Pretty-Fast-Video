@@ -15,10 +15,10 @@ pub struct Encoder<W: Write> {
     framerate: u32,
     prev_frame: VideoFrame,
     px_err: f32,
-    qtable_inter_l: [f32;64],
-    qtable_inter_c: [f32;64],
-    qtable_intra_l: [f32;64],
-    qtable_intra_c: [f32;64],
+    qtable_inter_l: [i32;64],
+    qtable_inter_c: [i32;64],
+    qtable_intra_l: [i32;64],
+    qtable_intra_c: [i32;64],
     writer: W,
     finished: bool,
     #[cfg(feature = "multithreading")]
@@ -45,10 +45,10 @@ impl<W: Write> Encoder<W> {
             Encoder { width: width, height: height, framerate: framerate,
                 prev_frame: VideoFrame::new_padded(width, height),
                 px_err: px_err,
-                qtable_inter_l: Q_TABLE_INTER.map(|x| (x * qscale * 0.5).max(1.0)),
-                qtable_inter_c: Q_TABLE_INTER.map(|x| (x * qscale).max(1.0)),
-                qtable_intra_l: Q_TABLE_INTRA.map(|x| (x * qscale * 0.5).max(1.0)),
-                qtable_intra_c: Q_TABLE_INTRA.map(|x| (x * qscale).max(1.0)),
+                qtable_inter_l: Q_TABLE_INTER.map(|x| (x as f32 * qscale * 0.5).max(1.0) as i32),
+                qtable_inter_c: Q_TABLE_INTER.map(|x| (x as f32 * qscale).max(1.0) as i32),
+                qtable_intra_l: Q_TABLE_INTRA.map(|x| (x as f32 * qscale * 0.5).max(1.0) as i32),
+                qtable_intra_c: Q_TABLE_INTRA.map(|x| (x as f32 * qscale).max(1.0) as i32),
                 writer: writer,
                 finished: false,
                 threadpool: rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap() }
@@ -56,11 +56,13 @@ impl<W: Write> Encoder<W> {
 
         #[cfg(not(feature = "multithreading"))]
         let mut enc = {
-            Encoder { width: width, height: height, framerate: framerate, samplerate: samplerate, channels: channels,
+            Encoder { width: width, height: height, framerate: framerate,
                 prev_frame: VideoFrame::new_padded(width, height),
                 px_err: px_err,
-                qtable_inter: Q_TABLE_INTER.map(|x| (x * qscale).max(1.0)),
-                qtable_intra: Q_TABLE_INTRA.map(|x| (x * qscale).max(1.0)),
+                qtable_inter_l: Q_TABLE_INTER.map(|x| (x as f32 * qscale * 0.5).max(1.0) as i32),
+                qtable_inter_c: Q_TABLE_INTER.map(|x| (x as f32 * qscale).max(1.0) as i32),
+                qtable_intra_l: Q_TABLE_INTRA.map(|x| (x as f32 * qscale * 0.5).max(1.0) as i32),
+                qtable_intra_c: Q_TABLE_INTRA.map(|x| (x as f32 * qscale).max(1.0) as i32),
                 writer: writer,
                 finished: false, }
         };
@@ -99,14 +101,14 @@ impl<W: Write> Encoder<W> {
 
         #[cfg(not(feature = "multithreading"))]
         {
-            let enc_y = frame.plane_y.encode_plane(&self.qtable_intra, 0);
-            let dec_y = VideoPlane::decode_plane(&enc_y, &self.qtable_intra);
+            let enc_y = frame.plane_y.encode_plane(&self.qtable_intra_l, 0);
+            let dec_y = VideoPlane::decode_plane(&enc_y, &self.qtable_intra_l);
 
-            let enc_u = frame.plane_u.encode_plane(&self.qtable_intra, 128);
-            let dec_u = VideoPlane::decode_plane(&enc_u, &self.qtable_intra);
+            let enc_u = frame.plane_u.encode_plane(&self.qtable_intra_c, 128);
+            let dec_u = VideoPlane::decode_plane(&enc_u, &self.qtable_intra_c);
 
-            let enc_v = frame.plane_v.encode_plane(&self.qtable_intra, 128);
-            let dec_v = VideoPlane::decode_plane(&enc_v, &self.qtable_intra);
+            let enc_v = frame.plane_v.encode_plane(&self.qtable_intra_c, 128);
+            let dec_v = VideoPlane::decode_plane(&enc_v, &self.qtable_intra_c);
 
             let enc_frame = EncodedIFrame { y: enc_y, u: enc_u, v: enc_v };
 
@@ -149,14 +151,14 @@ impl<W: Write> Encoder<W> {
 
         #[cfg(not(feature = "multithreading"))]
         {
-            let enc_y = frame.plane_y.encode_plane_delta(&self.prev_frame.plane_y, &self.qtable_inter, self.px_err, 0);
-            let dec_y = VideoPlane::decode_plane_delta(&enc_y, &self.prev_frame.plane_y, &self.qtable_inter);
+            let enc_y = frame.plane_y.encode_plane_delta(&self.prev_frame.plane_y, &self.qtable_inter_l, self.px_err, 0);
+            let dec_y = VideoPlane::decode_plane_delta(&enc_y, &self.prev_frame.plane_y, &self.qtable_inter_l);
 
-            let enc_u = frame.plane_u.encode_plane_delta(&self.prev_frame.plane_u, &self.qtable_inter, self.px_err, 128);
-            let dec_u = VideoPlane::decode_plane_delta(&enc_u, &self.prev_frame.plane_u, &self.qtable_inter);
+            let enc_u = frame.plane_u.encode_plane_delta(&self.prev_frame.plane_u, &self.qtable_inter_c, self.px_err, 128);
+            let dec_u = VideoPlane::decode_plane_delta(&enc_u, &self.prev_frame.plane_u, &self.qtable_inter_c);
 
-            let enc_v = frame.plane_v.encode_plane_delta(&self.prev_frame.plane_v, &self.qtable_inter, self.px_err, 128);
-            let dec_v = VideoPlane::decode_plane_delta(&enc_v, &self.prev_frame.plane_v, &self.qtable_inter);
+            let enc_v = frame.plane_v.encode_plane_delta(&self.prev_frame.plane_v, &self.qtable_inter_c, self.px_err, 128);
+            let dec_v = VideoPlane::decode_plane_delta(&enc_v, &self.prev_frame.plane_v, &self.qtable_inter_c);
 
             let enc_frame = EncodedPFrame { y: enc_y, u: enc_u, v: enc_v };
 

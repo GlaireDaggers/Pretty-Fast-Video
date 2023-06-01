@@ -17,7 +17,7 @@ pub struct Decoder<TReader: Read + Seek> {
     width: usize,
     height: usize,
     framerate: u32,
-    qtables: Vec<[f32;64]>,
+    qtables: Vec<[i32;64]>,
     framebuffer: VideoFrame,
     retframe: VideoFrame,
     delta_accum: f64,
@@ -96,11 +96,11 @@ impl<TReader: Read + Seek> Decoder<TReader> {
         let mut qtables = Vec::new();
 
         for _ in 0..num_qtable {
-            let mut qtable = [0.0;64];
+            let mut qtable = [0;64];
 
             for i in 0..64 {
                 qtable[i] = match reader.read_u16::<LittleEndian>() {
-                    Ok(v) => v as f32,
+                    Ok(v) => v as i32,
                     Err(e) => {
                         return Err(DecodeError::IOError(e));
                     }
@@ -447,7 +447,7 @@ impl<TReader: Read + Seek> Decoder<TReader> {
         Ok(())
     }
 
-    fn deserialize_plane(width: usize, height: usize, subblocks: &mut ChunksExact<i16>, q_table: &[f32;64], target: &mut VideoPlane, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
+    fn deserialize_plane(width: usize, height: usize, subblocks: &mut ChunksExact<i16>, q_table: &[i32;64], target: &mut VideoPlane, #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
         let blocks_wide = width / 16;
         let blocks_high = height / 16;
         let total_blocks = blocks_wide * blocks_high;
@@ -478,7 +478,7 @@ impl<TReader: Read + Seek> Decoder<TReader> {
         VideoPlane::decode_plane_into(&enc_plane, q_table, target);
     }
 
-    fn deserialize_plane_delta(width: usize, height: usize, headers: &mut Iter<DeltaBlockHeader>, subblocks: &mut ChunksExact<i16>, q_table: &[f32;64], target: &mut VideoPlane,
+    fn deserialize_plane_delta(width: usize, height: usize, headers: &mut Iter<DeltaBlockHeader>, subblocks: &mut ChunksExact<i16>, q_table: &[i32;64], target: &mut VideoPlane,
         #[cfg(feature = "multithreading")] tp: &rayon::ThreadPool) {
         let blocks_wide = width / 16;
         let blocks_high = height / 16;
