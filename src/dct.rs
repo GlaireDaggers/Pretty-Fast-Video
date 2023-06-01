@@ -8,65 +8,68 @@
 pub const FP_BITS: i32 = 8;
 const FLT_TO_FP: f32 = (1 << FP_BITS) as f32;
 
-const S_0: f32 = 0.353553390593273762200422;
+/*const S_0: f32 = 0.353553390593273762200422;
 const S_1: f32 = 0.254897789552079584470970;
 const S_2: f32 = 0.270598050073098492199862;
 const S_3: f32 = 0.300672443467522640271861;
 const S_4: f32 = 0.353553390593273762200422;
 const S_5: f32 = 0.449988111568207852319255;
 const S_6: f32 = 0.653281482438188263928322;
-const S_7: f32 = 1.281457723870753089398043;
+const S_7: f32 = 1.281457723870753089398043;*/
 
-const S_0_FP: i32 = (0.353553390593273762200422 * FLT_TO_FP) as i32;
-const S_1_FP: i32 = (0.254897789552079584470970 * FLT_TO_FP) as i32;
-const S_2_FP: i32 = (0.270598050073098492199862 * FLT_TO_FP) as i32;
-const S_3_FP: i32 = (0.300672443467522640271861 * FLT_TO_FP) as i32;
-const S_4_FP: i32 = (0.353553390593273762200422 * FLT_TO_FP) as i32;
-const S_5_FP: i32 = (0.449988111568207852319255 * FLT_TO_FP) as i32;
-const S_6_FP: i32 = (0.653281482438188263928322 * FLT_TO_FP) as i32;
-const S_7_FP: i32 = (1.281457723870753089398043 * FLT_TO_FP) as i32;
+const S_0: i32 = 90;
+const S_1: i32 = 65;
+const S_2: i32 = 69;
+const S_3: i32 = 76;
+const S_4: i32 = 90;
+const S_5: i32 = 115;
+const S_6: i32 = 167;
+const S_7: i32 = 328;
 
-const RS_0: f32 = 1.0 / S_0;
+/*const RS_0: f32 = 1.0 / S_0;
 const RS_1: f32 = 1.0 / S_1;
 const RS_2: f32 = 1.0 / S_2;
 const RS_3: f32 = 1.0 / S_3;
 const RS_4: f32 = 1.0 / S_4;
 const RS_5: f32 = 1.0 / S_5;
 const RS_6: f32 = 1.0 / S_6;
-const RS_7: f32 = 1.0 / S_7;
+const RS_7: f32 = 1.0 / S_7;*/
 
-const RS_0_FP: i32 = ((1.0 / S_0) * FLT_TO_FP) as i32;
-const RS_1_FP: i32 = ((1.0 / S_1) * FLT_TO_FP) as i32;
-const RS_2_FP: i32 = ((1.0 / S_2) * FLT_TO_FP) as i32;
-const RS_3_FP: i32 = ((1.0 / S_3) * FLT_TO_FP) as i32;
-const RS_4_FP: i32 = ((1.0 / S_4) * FLT_TO_FP) as i32;
-const RS_5_FP: i32 = ((1.0 / S_5) * FLT_TO_FP) as i32;
-const RS_6_FP: i32 = ((1.0 / S_6) * FLT_TO_FP) as i32;
-const RS_7_FP: i32 = ((1.0 / S_7) * FLT_TO_FP) as i32;
+const RS_0: i32 = 724;
+const RS_1: i32 = 1004;
+const RS_2: i32 = 946;
+const RS_3: i32 = 851;
+const RS_4: i32 = 724;
+const RS_5: i32 = 568;
+const RS_6: i32 = 391;
+const RS_7: i32 = 199;
 
-const A_1: f32 = 0.707106781186547524400844;
+/*const A_1: f32 = 0.707106781186547524400844;
 const A_2: f32 = 0.541196100146196984399723;
 const A_3: f32 = 0.707106781186547524400844;
 const A_4: f32 = 1.306562964876376527856643;
-const A_5: f32 = 0.382683432365089771728460;
+const A_5: f32 = 0.382683432365089771728460;*/
 
-const RA_1: f32 = 1.0 / A_1;
+const A_1: i32 = 181;
+const A_2: i32 = 138;
+const A_3: i32 = 181;
+const A_4: i32 = 334;
+const A_5: i32 = 97;
+
+/*const RA_1: f32 = 1.0 / A_1;
 const RA_2: f32 = 1.0 / A_2;
 const RA_3: f32 = 1.0 / A_3;
 const RA_4: f32 = 1.0 / A_4;
-const RA_5: f32 = 1.0 / A_5;
+const RA_5: f32 = 1.0 / A_5;*/
 
-const A_1_FP: i32 = (0.707106781186547524400844 * FLT_TO_FP) as i32;
-const A_2_FP: i32 = (0.541196100146196984399723 * FLT_TO_FP) as i32;
-const A_3_FP: i32 = (0.707106781186547524400844 * FLT_TO_FP) as i32;
-const A_4_FP: i32 = (1.306562964876376527856643 * FLT_TO_FP) as i32;
-const A_5_FP: i32 = (0.382683432365089771728460 * FLT_TO_FP) as i32;
+const RA_1: i32 = 362;
+const RA_2: i32 = 473;
+const RA_3: i32 = 362;
+const RA_4: i32 = 195;
+const RA_5: i32 = 668;
 
-const RA_1_FP: i32 = ((1.0 / A_1) * FLT_TO_FP) as i32;
-const RA_2_FP: i32 = ((1.0 / A_2) * FLT_TO_FP) as i32;
-const RA_3_FP: i32 = ((1.0 / A_3) * FLT_TO_FP) as i32;
-const RA_4_FP: i32 = ((1.0 / A_4) * FLT_TO_FP) as i32;
-const RA_5_FP: i32 = ((1.0 / A_5) * FLT_TO_FP) as i32;
+// const F: i32 = ((1.0 / (A_2 * A_5 - A_2 * A_4 - A_4 * A_5)) * FLT_TO_FP) as i32;
+const F: i32 = -256;
 
 /// Quantization table for intra-frames (I-Frames)
 pub static Q_TABLE_INTRA: [i32;64] = [
@@ -242,16 +245,16 @@ impl DctMatrix8x8 {
         let v10 = v1 - v2;
         let v11 = v0 - v3;
         let v12 = -v4 - v5;
-        let v13 = ((v5 + v6) * A_3_FP) >> FP_BITS;
+        let v13 = ((v5 + v6) * A_3) >> FP_BITS;
         let v14 = v6 + v7;
 
         let v15 = v8 + v9;
         let v16 = v8 - v9;
-        let v17 = ((v10 + v11) * A_1_FP) >> FP_BITS;
-        let v18 = ((v12 + v14) * A_5_FP) >> FP_BITS;
+        let v17 = ((v10 + v11) * A_1) >> FP_BITS;
+        let v18 = ((v12 + v14) * A_5) >> FP_BITS;
 
-        let v19 = ((-v12 * A_2_FP) >> FP_BITS) - v18;
-        let v20 = ((v14 * A_4_FP) >> FP_BITS) - v18;
+        let v19 = ((-v12 * A_2) >> FP_BITS) - v18;
+        let v20 = ((v14 * A_4) >> FP_BITS) - v18;
 
         let v21 = v17 + v11;
         let v22 = v11 - v17;
@@ -263,25 +266,25 @@ impl DctMatrix8x8 {
         let v27 = v23 - v20;
         let v28 = v24 - v19;
 
-        vector[0] = (S_0_FP * v15) >> FP_BITS;
-        vector[1] = (S_1_FP * v26) >> FP_BITS;
-        vector[2] = (S_2_FP * v21) >> FP_BITS;
-        vector[3] = (S_3_FP * v28) >> FP_BITS;
-        vector[4] = (S_4_FP * v16) >> FP_BITS;
-        vector[5] = (S_5_FP * v25) >> FP_BITS;
-        vector[6] = (S_6_FP * v22) >> FP_BITS;
-        vector[7] = (S_7_FP * v27) >> FP_BITS;
+        vector[0] = (S_0 * v15) >> FP_BITS;
+        vector[1] = (S_1 * v26) >> FP_BITS;
+        vector[2] = (S_2 * v21) >> FP_BITS;
+        vector[3] = (S_3 * v28) >> FP_BITS;
+        vector[4] = (S_4 * v16) >> FP_BITS;
+        vector[5] = (S_5 * v25) >> FP_BITS;
+        vector[6] = (S_6 * v22) >> FP_BITS;
+        vector[7] = (S_7 * v27) >> FP_BITS;
     }
 
     pub fn fast_dct8_inverse_transform(vector: &mut [i32;8]) {
-        let v15 = (vector[0] * RS_0_FP) >> FP_BITS;
-        let v26 = (vector[1] * RS_1_FP) >> FP_BITS;
-        let v21 = (vector[2] * RS_2_FP) >> FP_BITS;
-        let v28 = (vector[3] * RS_3_FP) >> FP_BITS;
-        let v16 = (vector[4] * RS_4_FP) >> FP_BITS;
-        let v25 = (vector[5] * RS_5_FP) >> FP_BITS;
-        let v22 = (vector[6] * RS_6_FP) >> FP_BITS;
-        let v27 = (vector[7] * RS_7_FP) >> FP_BITS;
+        let v15 = (vector[0] * RS_0) >> FP_BITS;
+        let v26 = (vector[1] * RS_1) >> FP_BITS;
+        let v21 = (vector[2] * RS_2) >> FP_BITS;
+        let v28 = (vector[3] * RS_3) >> FP_BITS;
+        let v16 = (vector[4] * RS_4) >> FP_BITS;
+        let v25 = (vector[5] * RS_5) >> FP_BITS;
+        let v22 = (vector[6] * RS_6) >> FP_BITS;
+        let v27 = (vector[7] * RS_7) >> FP_BITS;
         
         let v19 = (v25 - v28) >> 1;
         let v20 = (v26 - v27) >> 1;
@@ -296,16 +299,14 @@ impl DctMatrix8x8 {
         let v8 = (v15 + v16) >> 1;
         let v9 = (v15 - v16) >> 1;
 
-        const F: i32 = ((1.0 / (A_2 * A_5 - A_2 * A_4 - A_4 * A_5)) * FLT_TO_FP) as i32;
-        
-        let v18 = ((v19 - v20) * A_5_FP) >> FP_BITS;  // Different from original
-        let v12 = ((((v19 * A_4_FP) >> FP_BITS) - v18) * F) >> FP_BITS;
-        let v14 = ((v18 - ((v20 * A_2_FP) >> FP_BITS)) * F) >> FP_BITS;
+        let v18 = ((v19 - v20) * A_5) >> FP_BITS;  // Different from original
+        let v12 = ((((v19 * A_4) >> FP_BITS) - v18) * F) >> FP_BITS;
+        let v14 = ((v18 - ((v20 * A_2) >> FP_BITS)) * F) >> FP_BITS;
         
         let v6 = v14 - v7;
-        let v5 = ((v13 * RA_3_FP) >> FP_BITS) - v6;
+        let v5 = ((v13 * RA_3) >> FP_BITS) - v6;
         let v4 = -v5 - v12;
-        let v10 = ((v17 * RA_1_FP) >> FP_BITS) - v11;
+        let v10 = ((v17 * RA_1) >> FP_BITS) - v11;
         
         let v0 = (v8 + v11) >> 1;
         let v1 = (v9 + v10) >> 1;
