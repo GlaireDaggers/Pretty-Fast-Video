@@ -11,6 +11,14 @@ Goals are to improve:
 
 Current codec version is 2.0.1
 
+## Why?
+
+The goal of PFV is to be to video what QOA is to audio - that is, an extremely minimal codec that aims to prioritize simplicity and decoding speed over compression ratio, is completely free for use, and aimed at playing back video in offline applications such as games.
+
+The primary target to beat for performance has been Theora. While this Rust library does not manage to beat Theora's decoding performance, I have written an accompanying pure C library which *does* beat Theora's decoding performance (especially when scaled to use all available cores in the system, as it is an extremely parallel algorithm): [libpfvdec](https://github.com/GlaireDaggers/libpfvdec)
+
+A future target to explore would be GPU decoding via compute shaders - as each macroblock can already be processed completely in parallel, it should be simple to upload DCT coefficients and perform decoding completely on the GPU, decoding directly into a game-ready texture.
+
 ## Usage
 
 ### Encoding Video
