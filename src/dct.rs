@@ -75,11 +75,11 @@ impl DctMatrix8x8 {
     pub fn decode(src: &DctQuantizedMatrix8x8, q_table: &[i32;64]) -> DctMatrix8x8 {
         let mut result = DctMatrix8x8 { m: [0;64] };
 
-        for idx in INV_ZIGZAG_TABLE {
-            let n = src.m[idx] as i32 * DCT_SCALE_FACTOR[idx];
-            let d = q_table[idx];
+        for (i, idx) in INV_ZIGZAG_TABLE.iter().enumerate() {
+            let n = src.m[*idx] as i32 * DCT_SCALE_FACTOR[*idx];
+            let d = q_table[*idx];
 
-            result.m[idx] = n * d;
+            result.m[i] = n * d;
         }
 
         result
@@ -88,11 +88,11 @@ impl DctMatrix8x8 {
     pub fn encode(self: &mut DctMatrix8x8, q_table: &[i32;64]) -> DctQuantizedMatrix8x8 {
         let mut result = DctQuantizedMatrix8x8 { m: [0;64] };
 
-        for idx in ZIGZAG_TABLE {
-            let n = (self.m[idx] * DCT_SCALE_FACTOR[idx]) >> (FP_BITS * 2);
-            let d = q_table[idx];
+        for (i, idx) in ZIGZAG_TABLE.iter().enumerate() {
+            let n = (self.m[*idx] * DCT_SCALE_FACTOR[*idx]) >> (FP_BITS * 2);
+            let d = q_table[*idx];
 
-            result.m[idx] = (n / d) as i16;
+            result.m[i] = (n / d) as i16;
         }
 
         result
