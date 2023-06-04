@@ -18,17 +18,34 @@ mod tests {
 
     use crate::{dct::*, frame::VideoFrame, plane::VideoPlane, enc::Encoder, dec::Decoder, rle};
 
+    const DCT_B2_NORMALIZER: [i32;8] = [
+        91, 105, 95, 75, 91, 75, 95, 105
+    ];
+
+    pub fn dct_b2_scale(vector: &mut [i32;8]) {
+        vector[0] = (vector[0] * DCT_B2_NORMALIZER[0]) / 256;
+        vector[1] = (vector[1] * DCT_B2_NORMALIZER[1]) / 256;
+        vector[2] = (vector[2] * DCT_B2_NORMALIZER[2]) / 256;
+        vector[3] = (vector[3] * DCT_B2_NORMALIZER[3]) / 256;
+        vector[4] = (vector[4] * DCT_B2_NORMALIZER[4]) / 256;
+        vector[5] = (vector[5] * DCT_B2_NORMALIZER[5]) / 256;
+        vector[6] = (vector[6] * DCT_B2_NORMALIZER[6]) / 256;
+        vector[7] = (vector[7] * DCT_B2_NORMALIZER[7]) / 256;
+    }
+
     #[test]
-    fn test_dct() {
+    fn test_dct_2_fp() {
         let data: [i32;8] = [0 << 8, 10 << 8, 20 << 8, 30 << 8, 40 << 8, 50 << 8, 60 << 8, 70 << 8];
 
         let mut dct = data;
-        DctMatrix8x8::fast_dct8_transform(&mut dct);
+        DctMatrix8x8::fdct(&mut dct);
+        dct_b2_scale(&mut dct);
 
         println!("DCT: {:?}", dct);
 
         let mut out = dct;
-        DctMatrix8x8::fast_dct8_inverse_transform(&mut out);
+        dct_b2_scale(&mut out);
+        DctMatrix8x8::idct(&mut out);
 
         for i in 0..8 {
             out[i] >>= 8;

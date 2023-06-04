@@ -1,75 +1,16 @@
-#![allow(dead_code)]
-
-// adapted from https://www.nayuki.io/page/fast-discrete-cosine-transform-algorithms
-
-// in the original these are arrays, but are only ever referred to with constant indices, so we can just unfold the whole array
-// also storing reciprocals to replace divides with multiplies
-
 pub const FP_BITS: i32 = 8;
-const FLT_TO_FP: f32 = (1 << FP_BITS) as f32;
 
-/*const S_0: f32 = 0.353553390593273762200422;
-const S_1: f32 = 0.254897789552079584470970;
-const S_2: f32 = 0.270598050073098492199862;
-const S_3: f32 = 0.300672443467522640271861;
-const S_4: f32 = 0.353553390593273762200422;
-const S_5: f32 = 0.449988111568207852319255;
-const S_6: f32 = 0.653281482438188263928322;
-const S_7: f32 = 1.281457723870753089398043;*/
-
-const S_0: i32 = 90;
-const S_1: i32 = 65;
-const S_2: i32 = 69;
-const S_3: i32 = 76;
-const S_4: i32 = 90;
-const S_5: i32 = 115;
-const S_6: i32 = 167;
-const S_7: i32 = 328;
-
-/*const RS_0: f32 = 1.0 / S_0;
-const RS_1: f32 = 1.0 / S_1;
-const RS_2: f32 = 1.0 / S_2;
-const RS_3: f32 = 1.0 / S_3;
-const RS_4: f32 = 1.0 / S_4;
-const RS_5: f32 = 1.0 / S_5;
-const RS_6: f32 = 1.0 / S_6;
-const RS_7: f32 = 1.0 / S_7;*/
-
-const RS_0: i32 = 724;
-const RS_1: i32 = 1004;
-const RS_2: i32 = 946;
-const RS_3: i32 = 851;
-const RS_4: i32 = 724;
-const RS_5: i32 = 568;
-const RS_6: i32 = 391;
-const RS_7: i32 = 199;
-
-/*const A_1: f32 = 0.707106781186547524400844;
-const A_2: f32 = 0.541196100146196984399723;
-const A_3: f32 = 0.707106781186547524400844;
-const A_4: f32 = 1.306562964876376527856643;
-const A_5: f32 = 0.382683432365089771728460;*/
-
-const A_1: i32 = 181;
-const A_2: i32 = 138;
-const A_3: i32 = 181;
-const A_4: i32 = 334;
-const A_5: i32 = 97;
-
-/*const RA_1: f32 = 1.0 / A_1;
-const RA_2: f32 = 1.0 / A_2;
-const RA_3: f32 = 1.0 / A_3;
-const RA_4: f32 = 1.0 / A_4;
-const RA_5: f32 = 1.0 / A_5;*/
-
-const RA_1: i32 = 362;
-const RA_2: i32 = 473;
-const RA_3: i32 = 362;
-const RA_4: i32 = 195;
-const RA_5: i32 = 668;
-
-// const F: i32 = ((1.0 / (A_2 * A_5 - A_2 * A_4 - A_4 * A_5)) * FLT_TO_FP) as i32;
-const F: i32 = -256;
+/// Scale factors to be applied to coefficients at encode & decode time, in 24.8 fixed point
+pub static DCT_SCALE_FACTOR: [i32;64] = [
+    32, 37, 34, 26, 32, 26, 34, 37,
+    37, 43, 39, 31, 37, 31, 39, 43,
+    34, 39, 35, 28, 34, 28, 35, 39,
+    26, 31, 28, 22, 26, 22, 28, 31,
+    32, 37, 34, 26, 32, 26, 34, 37,
+    26, 31, 28, 22, 26, 22, 28, 31,
+    34, 39, 35, 28, 34, 28, 35, 39,
+    37, 43, 39, 31, 37, 31, 39, 43,
+];
 
 /// Quantization table for intra-frames (I-Frames)
 pub static Q_TABLE_INTRA: [i32;64] = [
@@ -134,8 +75,8 @@ impl DctMatrix8x8 {
     pub fn decode(src: &DctQuantizedMatrix8x8, q_table: &[i32;64]) -> DctMatrix8x8 {
         let mut result = DctMatrix8x8 { m: [0;64] };
 
-        for idx in 0..64 {
-            let n = (src.m[INV_ZIGZAG_TABLE[idx]] as i32) << FP_BITS;
+        for idx in INV_ZIGZAG_TABLE {
+            let n = src.m[idx] as i32 * DCT_SCALE_FACTOR[idx];
             let d = q_table[idx];
 
             result.m[idx] = n * d;
@@ -147,8 +88,8 @@ impl DctMatrix8x8 {
     pub fn encode(self: &mut DctMatrix8x8, q_table: &[i32;64]) -> DctQuantizedMatrix8x8 {
         let mut result = DctQuantizedMatrix8x8 { m: [0;64] };
 
-        for idx in 0..64 {
-            let n = self.m[ZIGZAG_TABLE[idx]] >> FP_BITS;
+        for idx in ZIGZAG_TABLE {
+            let n = (self.m[idx] * DCT_SCALE_FACTOR[idx]) >> (FP_BITS * 2);
             let d = q_table[idx];
 
             result.m[idx] = (n / d) as i16;
@@ -198,7 +139,7 @@ impl DctMatrix8x8 {
     pub fn dct_transform_rows(self: &mut DctMatrix8x8) {
         for idx in 0..8 {
             let mut row = self.get_row(idx);
-            DctMatrix8x8::fast_dct8_transform(&mut row);
+            DctMatrix8x8::fdct(&mut row);
             self.set_row(idx, row);
         }
     }
@@ -207,7 +148,7 @@ impl DctMatrix8x8 {
     pub fn dct_transform_columns(self: &mut DctMatrix8x8) {
         for idx in 0..8 {
             let mut column = self.get_column(idx);
-            DctMatrix8x8::fast_dct8_transform(&mut column);
+            DctMatrix8x8::fdct(&mut column);
             self.set_column(idx, column);
         }
     }
@@ -216,7 +157,7 @@ impl DctMatrix8x8 {
     pub fn dct_inverse_transform_rows(self: &mut DctMatrix8x8) {
         for idx in 0..8 {
             let mut row = self.get_row(idx);
-            DctMatrix8x8::fast_dct8_inverse_transform(&mut row);
+            DctMatrix8x8::idct(&mut row);
             self.set_row(idx, row);
         }
     }
@@ -225,101 +166,129 @@ impl DctMatrix8x8 {
     pub fn dct_inverse_transform_columns(self: &mut DctMatrix8x8) {
         for idx in 0..8 {
             let mut column = self.get_column(idx);
-            DctMatrix8x8::fast_dct8_inverse_transform(&mut column);
+            DctMatrix8x8::idct(&mut column);
             self.set_column(idx, column);
         }
     }
 
-    pub fn fast_dct8_transform(vector: &mut [i32;8]) {
-        let v0 = vector[0] + vector[7];
-        let v1 = vector[1] + vector[6];
-        let v2 = vector[2] + vector[5];
-        let v3 = vector[3] + vector[4];
-        let v4 = vector[3] - vector[4];
-        let v5 = vector[2] - vector[5];
-        let v6 = vector[1] - vector[6];
-        let v7 = vector[0] - vector[7];
+    // adapted from https://fgiesen.wordpress.com/2013/11/04/bink-2-2-integer-dct-design-part-1/
 
-        let v8 = v0 + v3;
-        let v9 = v1 + v2;
-        let v10 = v1 - v2;
-        let v11 = v0 - v3;
-        let v12 = -v4 - v5;
-        let v13 = ((v5 + v6) * A_3) >> FP_BITS;
-        let v14 = v6 + v7;
+    pub fn fdct(vector: &mut [i32;8]) {
+        // extract rows
+        let i0 = vector[0];
+        let i1 = vector[1];
+        let i2 = vector[2];
+        let i3 = vector[3];
+        let i4 = vector[4];
+        let i5 = vector[5];
+        let i6 = vector[6];
+        let i7 = vector[7];
 
-        let v15 = v8 + v9;
-        let v16 = v8 - v9;
-        let v17 = ((v10 + v11) * A_1) >> FP_BITS;
-        let v18 = ((v12 + v14) * A_5) >> FP_BITS;
+        // stage 1 - 8A
+        let a0 = i0 + i7;
+        let a1 = i1 + i6;
+        let a2 = i2 + i5;
+        let a3 = i3 + i4;
+        let a4 = i0 - i7;
+        let a5 = i1 - i6;
+        let a6 = i2 - i5;
+        let a7 = i3 - i4;
 
-        let v19 = ((-v12 * A_2) >> FP_BITS) - v18;
-        let v20 = ((v14 * A_4) >> FP_BITS) - v18;
+        // even stage 2 - 4A
+        let b0 = a0 + a3;
+        let b1 = a1 + a2;
+        let b2 = a0 - a3;
+        let b3 = a1 - a2;
 
-        let v21 = v17 + v11;
-        let v22 = v11 - v17;
-        let v23 = v13 + v7;
-        let v24 = v7 - v13;
+        // even stage 3 - 6A 4S
+        let c0 = b0 + b1;
+        let c1 = b0 - b1;
+        let c2 = b2 + b2/4 + b3/2;
+        let c3 = b2/2 - b3 - b3/4;
 
-        let v25 = v19 + v24;
-        let v26 = v23 + v20;
-        let v27 = v23 - v20;
-        let v28 = v24 - v19;
+        // odd stage 2 - 12A 8S
+        // NB a4/4 and a7/4 are each used twice, so this really is 8 shifts, not 10.
+        let b4 = a7/4 + a4 + a4/4 - a4/16;
+        let b7 = a4/4 - a7 - a7/4 + a7/16;
+        let b5 = a5 + a6 - a6/4 - a6/16;
+        let b6 = a6 - a5 + a5/4 + a5/16;
 
-        vector[0] = (S_0 * v15) >> FP_BITS;
-        vector[1] = (S_1 * v26) >> FP_BITS;
-        vector[2] = (S_2 * v21) >> FP_BITS;
-        vector[3] = (S_3 * v28) >> FP_BITS;
-        vector[4] = (S_4 * v16) >> FP_BITS;
-        vector[5] = (S_5 * v25) >> FP_BITS;
-        vector[6] = (S_6 * v22) >> FP_BITS;
-        vector[7] = (S_7 * v27) >> FP_BITS;
+        // odd stage 3 - 4A
+        let c4 = b4 + b5;
+        let c5 = b4 - b5;
+        let c6 = b6 + b7;
+        let c7 = b6 - b7;
+
+        // odd stage 4 - 2A
+        let d4 = c4;
+        let d5 = c5 + c7;
+        let d6 = c5 - c7;
+        let d7 = c6;
+
+        // permute/output
+        vector[0] = c0;
+        vector[1] = d4;
+        vector[2] = c2;
+        vector[3] = d6;
+        vector[4] = c1;
+        vector[5] = d5;
+        vector[6] = c3;
+        vector[7] = d7;
+
+        // total: 36A 12S
     }
 
-    pub fn fast_dct8_inverse_transform(vector: &mut [i32;8]) {
-        let v15 = (vector[0] * RS_0) >> FP_BITS;
-        let v26 = (vector[1] * RS_1) >> FP_BITS;
-        let v21 = (vector[2] * RS_2) >> FP_BITS;
-        let v28 = (vector[3] * RS_3) >> FP_BITS;
-        let v16 = (vector[4] * RS_4) >> FP_BITS;
-        let v25 = (vector[5] * RS_5) >> FP_BITS;
-        let v22 = (vector[6] * RS_6) >> FP_BITS;
-        let v27 = (vector[7] * RS_7) >> FP_BITS;
-        
-        let v19 = (v25 - v28) >> 1;
-        let v20 = (v26 - v27) >> 1;
-        let v23 = (v26 + v27) >> 1;
-        let v24 = (v25 + v28) >> 1;
-        
-        let v7  = (v23 + v24) >> 1;
-        let v11 = (v21 + v22) >> 1;
-        let v13 = (v23 - v24) >> 1;
-        let v17 = (v21 - v22) >> 1;
-        
-        let v8 = (v15 + v16) >> 1;
-        let v9 = (v15 - v16) >> 1;
+    pub fn idct(vector: &mut [i32;8]) {
+        // extract rows (with input permutation)
+        let c0 = vector[0];
+        let d4 = vector[1];
+        let c2 = vector[2];
+        let d6 = vector[3];
+        let c1 = vector[4];
+        let d5 = vector[5];
+        let c3 = vector[6];
+        let d7 = vector[7];
 
-        let v18 = ((v19 - v20) * A_5) >> FP_BITS;  // Different from original
-        let v12 = ((((v19 * A_4) >> FP_BITS) - v18) * F) >> FP_BITS;
-        let v14 = ((v18 - ((v20 * A_2) >> FP_BITS)) * F) >> FP_BITS;
-        
-        let v6 = v14 - v7;
-        let v5 = ((v13 * RA_3) >> FP_BITS) - v6;
-        let v4 = -v5 - v12;
-        let v10 = ((v17 * RA_1) >> FP_BITS) - v11;
-        
-        let v0 = (v8 + v11) >> 1;
-        let v1 = (v9 + v10) >> 1;
-        let v2 = (v9 - v10) >> 1;
-        let v3 = (v8 - v11) >> 1;
-        
-        vector[0] = (v0 + v7) >> 1;
-        vector[1] = (v1 + v6) >> 1;
-        vector[2] = (v2 + v5) >> 1;
-        vector[3] = (v3 + v4) >> 1;
-        vector[4] = (v3 - v4) >> 1;
-        vector[5] = (v2 - v5) >> 1;
-        vector[6] = (v1 - v6) >> 1;
-        vector[7] = (v0 - v7) >> 1;
+        // odd stage 4
+        let c4 = d4;
+        let c5 = d5 + d6;
+        let c7 = d5 - d6;
+        let c6 = d7;
+
+        // odd stage 3
+        let b4 = c4 + c5;
+        let b5 = c4 - c5;
+        let b6 = c6 + c7;
+        let b7 = c6 - c7;
+
+        // even stage 3
+        let b0 = c0 + c1;
+        let b1 = c0 - c1;
+        let b2 = c2 + c2/4 + c3/2;
+        let b3 = c2/2 - c3 - c3/4;
+
+        // odd stage 2
+        let a4 = b7/4 + b4 + b4/4 - b4/16;
+        let a7 = b4/4 - b7 - b7/4 + b7/16;
+        let a5 = b5 - b6 + b6/4 + b6/16;
+        let a6 = b6 + b5 - b5/4 - b5/16;
+
+        // even stage 2
+        let a0 = b0 + b2;
+        let a1 = b1 + b3;
+        let a2 = b1 - b3;
+        let a3 = b0 - b2;
+
+        // stage 1
+        vector[0] = a0 + a4;
+        vector[1] = a1 + a5;
+        vector[2] = a2 + a6;
+        vector[3] = a3 + a7;
+        vector[4] = a3 - a7;
+        vector[5] = a2 - a6;
+        vector[6] = a1 - a5;
+        vector[7] = a0 - a4;
+
+        // total: 36A 12S
     }
 }
