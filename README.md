@@ -9,7 +9,7 @@ Goals are to improve:
 - Codec structure
 - (Hopefully) performance
 
-Current codec version is 2.1.0
+Current codec version is 2.1.1
 
 ## Why?
 
