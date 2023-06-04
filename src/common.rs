@@ -1,5 +1,5 @@
 pub const PFV_MAGIC: &[u8] = b"PFVIDEO\0";
-pub const PFV_VERSION: u32 = 210;
+pub const PFV_VERSION: u32 = 211;
 
 use crate::{dct::{DctQuantizedMatrix8x8, DctMatrix8x8, FP_BITS}, plane::VideoPlane};
 
@@ -97,7 +97,7 @@ impl MacroBlock {
 
     pub fn apply_residuals(self: &mut MacroBlock, from: &MacroBlock) {
         for (delta, pixel) in self.pixels.iter_mut().zip(from.pixels) {
-            let d = *delta as i16 - 128;
+            let d = (*delta as i16 - 128) * 2;
             let p = pixel as i16;
             *delta = (p + d).clamp(0, 255) as u8;
         }
@@ -301,7 +301,7 @@ impl VideoPlane {
         assert!(src.width == 8 && src.height == 8);
 
         let mut dct = DctMatrix8x8::new();
-        let cell_px: Vec<i32> = src.deltas.iter().map(|x| (*x as i32) << FP_BITS).collect();
+        let cell_px: Vec<i32> = src.deltas.iter().map(|x| (*x as i32 / 2) << FP_BITS).collect();
         dct.m.copy_from_slice(&cell_px);
 
         dct.dct_transform_rows();
